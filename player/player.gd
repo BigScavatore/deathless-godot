@@ -220,54 +220,57 @@ func _update_fov(delta: float) -> void:
 # --- Input -----------------------------------------------------------------
 
 # Registra le azioni da codice, così non serve toccare project.godot.
-# Se preferisci la Mappa input dell'editor, crea un'azione "move_forward":
-# in quel caso questa funzione non fa nulla (servono anche move_*, look_*, jump, dash).
+# Un'azione già definita nella Mappa input dell'editor viene lasciata com'è
+# (quindi puoi rimappare tutto da lì senza modificare questo script).
 func _register_input_actions() -> void:
-	if InputMap.has_action("move_forward"):
+	_add_action("move_forward", [_key(KEY_W), _key(KEY_UP), _axis(JOY_AXIS_LEFT_Y, -1.0)])
+	_add_action("move_back", [_key(KEY_S), _key(KEY_DOWN), _axis(JOY_AXIS_LEFT_Y, 1.0)])
+	_add_action("move_left", [_key(KEY_A), _key(KEY_LEFT), _axis(JOY_AXIS_LEFT_X, -1.0)])
+	_add_action("move_right", [_key(KEY_D), _key(KEY_RIGHT), _axis(JOY_AXIS_LEFT_X, 1.0)])
+	_add_action("look_up", [_axis(JOY_AXIS_RIGHT_Y, -1.0)])
+	_add_action("look_down", [_axis(JOY_AXIS_RIGHT_Y, 1.0)])
+	_add_action("look_left", [_axis(JOY_AXIS_RIGHT_X, -1.0)])
+	_add_action("look_right", [_axis(JOY_AXIS_RIGHT_X, 1.0)])
+	_add_action("jump", [_key(KEY_SPACE), _button(JOY_BUTTON_A)])
+	_add_action("dash", [_key(KEY_SHIFT), _button(JOY_BUTTON_B)])
+
+	# Armi (usate da viewmodel.gd)
+	_add_action("attack", [_mouse(MOUSE_BUTTON_LEFT), _axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)])
+	_add_action("block", [_mouse(MOUSE_BUTTON_RIGHT), _axis(JOY_AXIS_TRIGGER_LEFT, 1.0)])
+	_add_action("weapon_next", [_mouse(MOUSE_BUTTON_WHEEL_DOWN), _button(JOY_BUTTON_Y)])
+	_add_action("weapon_prev", [_mouse(MOUSE_BUTTON_WHEEL_UP)])
+	for i in 9:
+		_add_action("weapon_%d" % (i + 1), [_key((KEY_1 + i) as Key)])
+
+
+func _add_action(action: StringName, events: Array[InputEvent]) -> void:
+	if InputMap.has_action(action):
 		return
-	_add_key_action("move_forward", [KEY_W, KEY_UP])
-	_add_key_action("move_back", [KEY_S, KEY_DOWN])
-	_add_key_action("move_left", [KEY_A, KEY_LEFT])
-	_add_key_action("move_right", [KEY_D, KEY_RIGHT])
-	_add_key_action("jump", [KEY_SPACE])
-	_add_key_action("dash", [KEY_SHIFT])
-
-	_add_axis_action("move_forward", JOY_AXIS_LEFT_Y, -1.0)
-	_add_axis_action("move_back", JOY_AXIS_LEFT_Y, 1.0)
-	_add_axis_action("move_left", JOY_AXIS_LEFT_X, -1.0)
-	_add_axis_action("move_right", JOY_AXIS_LEFT_X, 1.0)
-	_add_axis_action("look_up", JOY_AXIS_RIGHT_Y, -1.0)
-	_add_axis_action("look_down", JOY_AXIS_RIGHT_Y, 1.0)
-	_add_axis_action("look_left", JOY_AXIS_RIGHT_X, -1.0)
-	_add_axis_action("look_right", JOY_AXIS_RIGHT_X, 1.0)
-
-	_add_button_action("jump", JOY_BUTTON_A)
-	_add_button_action("dash", JOY_BUTTON_B)
-
-
-func _ensure_action(action: StringName) -> void:
-	if not InputMap.has_action(action):
-		InputMap.add_action(action, 0.2)
-
-
-func _add_key_action(action: StringName, keys: Array) -> void:
-	_ensure_action(action)
-	for key in keys:
-		var ev := InputEventKey.new()
-		ev.physical_keycode = key
+	InputMap.add_action(action, 0.2)
+	for ev in events:
 		InputMap.action_add_event(action, ev)
 
 
-func _add_axis_action(action: StringName, axis: JoyAxis, value: float) -> void:
-	_ensure_action(action)
+func _key(keycode: Key) -> InputEvent:
+	var ev := InputEventKey.new()
+	ev.physical_keycode = keycode
+	return ev
+
+
+func _mouse(button: MouseButton) -> InputEvent:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = button
+	return ev
+
+
+func _axis(axis: JoyAxis, value: float) -> InputEvent:
 	var ev := InputEventJoypadMotion.new()
 	ev.axis = axis
 	ev.axis_value = value
-	InputMap.action_add_event(action, ev)
+	return ev
 
 
-func _add_button_action(action: StringName, button: JoyButton) -> void:
-	_ensure_action(action)
+func _button(button: JoyButton) -> InputEvent:
 	var ev := InputEventJoypadButton.new()
 	ev.button_index = button
-	InputMap.action_add_event(action, ev)
+	return ev
