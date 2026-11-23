@@ -14,6 +14,12 @@ background_mode = 2
 sky = SubResource("Sky_ig7tw")
 glow_enabled = true
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+albedo_color = Color(0.25, 0.26, 0.3, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wall"]
+albedo_color = Color(0.55, 0.4, 0.35, 1)
+
 [node name="Main" type="Node3D" unique_id=1853969468]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2012053868]
@@ -32,3 +38,29 @@ transform = Transform3D(0.27999997, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 1.2)
+
+[node name="Arena" type="Node3D" parent="."]
+
+[node name="Floor" type="CSGBox3D" parent="Arena"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+material = SubResource("StandardMaterial3D_floor")
+use_collision = true
+size = Vector3(80, 1, 80)
+
+[node name="WallLeft" type="CSGBox3D" parent="Arena"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 5, -16)
+material = SubResource("StandardMaterial3D_wall")
+use_collision = true
+size = Vector3(1, 10, 14)
+
+[node name="WallRight" type="CSGBox3D" parent="Arena"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 5, -16)
+material = SubResource("StandardMaterial3D_wall")
+use_collision = true
+size = Vector3(1, 10, 14)
+
+[node name="Block" type="CSGBox3D" parent="Arena"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 2, 4)
+material = SubResource("StandardMaterial3D_wall")
+use_collision = true
+size = Vector3(6, 4, 6)
