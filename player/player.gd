@@ -2,6 +2,10 @@ extends CharacterBody3D
 ## Controller in prima persona stile ULTRAKILL: movimento veloce, dash a cariche e wall jump.
 ## WASD / stick sinistro = movimento, Spazio / A = salto (anche wall jump),
 ## Shift / B = dash, mouse / stick destro = camera, Esc = rilascia il mouse.
+## Vita e danno: vedi take_damage() (convenzione in combat/combat.gd).
+
+signal health_changed(health: float, max_health: float)
+signal died
 
 ## Scala del progetto: 1 unità = 1 metro.
 @export_group("Size")
@@ -44,9 +48,22 @@ extends CharacterBody3D
 @export var dash_fov := 105.0
 @export var fov_lerp_speed := 12.0
 
+@export_group("Health")
+@export var max_health := 100.0
+## Frazione del danno che passa quando si para con lo scudo (senza parry).
+@export_range(0.0, 1.0) var block_damage_factor := 0.25
+## Massima rotazione (radianti) della camera durante lo shake.
+@export var max_shake := 0.045
+
 @onready var _collision: CollisionShape3D = $CollisionShape3D
 @onready var _head: Node3D = $Head
 @onready var _camera: Camera3D = $Head/Camera3D
+@onready var _viewmodel: Node3D = $Head/Camera3D/Viewmodel
+@onready var _hud: CanvasLayer = $HUD
+
+var health := 0.0
+var _dead := false
+var _shake := 0.0
 
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
@@ -68,10 +85,15 @@ func _ready() -> void:
 	_dash_charges = float(dash_charges_max)
 	_wall_jumps_left = max_wall_jumps
 	_camera.fov = base_fov
+	health = max_health
+	add_to_group("player")
+	_hud.set_health(health, max_health)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _dead:
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_rotate_camera(event.relative * mouse_sensitivity)
 	elif event.is_action_pressed("ui_cancel"):
@@ -80,7 +102,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+func _process(delta: float) -> void:
+	_update_shake(delta)
+
+
 func _physics_process(delta: float) -> void:
+	if _dead:
+		velocity.x = move_toward(velocity.x, 0.0, friction * delta)
+		velocity.z = move_toward(velocity.z, 0.0, friction * delta)
+		velocity.y -= _gravity * gravity_scale * delta
+		move_and_slide()
+		return
+
 	var look := Input.get_vector("look_left", "look_right", "look_up", "look_down")
 	if look != Vector2.ZERO:
 		_rotate_camera(look * stick_sensitivity * delta)
@@ -109,6 +142,65 @@ func _apply_size() -> void:
 	_collision.shape = capsule
 	_collision.position.y = player_height / 2.0
 	_head.position.y = eye_height
+
+
+# --- Vita e danno ---------------------------------------------------------
+
+## Chiamato da chi attacca il player. L'arma in mano può parare o fare parry.
+func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
+	if _dead:
+		return Combat.HitResult.IGNORED
+	var result := Combat.HitResult.HIT
+	var weapon: Weapon = _viewmodel.current_weapon()
+	if weapon and source:
+		result = weapon.defend(source.global_position)
+
+	match result:
+		Combat.HitResult.PARRIED:
+			Combat.hitstop(self, 0.12)
+			add_shake(0.35)
+			_hud.flash_parry()
+			return result
+		Combat.HitResult.BLOCKED:
+			amount *= block_damage_factor
+			add_shake(0.35)
+			_hud.flash_damage(0.15)
+		_:
+			add_shake(0.7)
+			_hud.flash_damage(0.45)
+
+	health = maxf(health - amount, 0.0)
+	_hud.set_health(health, max_health)
+	health_changed.emit(health, max_health)
+	if health <= 0.0:
+		_die()
+	return result
+
+
+## "Trauma" della camera da 0 a 1 (si somma e decade da solo).
+func add_shake(amount: float) -> void:
+	_shake = minf(_shake + amount, 1.0)
+
+
+func _die() -> void:
+	_dead = true
+	died.emit()
+	_viewmodel.visible = false
+	# Camera che cade a terra, poi si ricarica il livello.
+	var tween := create_tween()
+	tween.set_parallel()
+	tween.tween_property(_head, "position:y", 0.35, 0.6).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_head, "rotation:z", deg_to_rad(70.0), 0.5)
+	await get_tree().create_timer(2.5).timeout
+	Engine.time_scale = 1.0
+	get_tree().reload_current_scene()
+
+
+func _update_shake(delta: float) -> void:
+	_shake = move_toward(_shake, 0.0, delta * 2.0)
+	var amount := _shake * _shake * max_shake
+	_camera.rotation = Vector3(
+		randf_range(-amount, amount), randf_range(-amount, amount), randf_range(-amount, amount) * 0.5)
 
 
 # --- Movimento -------------------------------------------------------------
