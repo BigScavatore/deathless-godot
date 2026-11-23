@@ -3,6 +3,13 @@ extends CharacterBody3D
 ## WASD / stick sinistro = movimento, Spazio / A = salto (anche wall jump),
 ## Shift / B = dash, mouse / stick destro = camera, Esc = rilascia il mouse.
 
+## Scala del progetto: 1 unità = 1 metro.
+@export_group("Size")
+@export var player_height := 1.8
+@export var player_radius := 0.4
+## Altezza degli occhi (camera) dai piedi.
+@export var eye_height := 1.6
+
 @export_group("Movement")
 @export var speed := 14.0
 @export var jump_velocity := 10.0
@@ -37,6 +44,7 @@ extends CharacterBody3D
 @export var dash_fov := 105.0
 @export var fov_lerp_speed := 12.0
 
+@onready var _collision: CollisionShape3D = $CollisionShape3D
 @onready var _head: Node3D = $Head
 @onready var _camera: Camera3D = $Head/Camera3D
 
@@ -55,6 +63,7 @@ var _jump_buffer := 0.0
 
 
 func _ready() -> void:
+	_apply_size()
 	_register_input_actions()
 	_dash_charges = float(dash_charges_max)
 	_wall_jumps_left = max_wall_jumps
@@ -89,6 +98,17 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_update_wall_contact()
 	_update_fov(delta)
+
+
+# --- Dimensioni ------------------------------------------------------------
+
+func _apply_size() -> void:
+	var capsule := CapsuleShape3D.new()
+	capsule.height = player_height
+	capsule.radius = player_radius
+	_collision.shape = capsule
+	_collision.position.y = player_height / 2.0
+	_head.position.y = eye_height
 
 
 # --- Movimento -------------------------------------------------------------
