@@ -329,6 +329,7 @@ func _register_input_actions() -> void:
 	# Armi (usate da viewmodel.gd)
 	_add_action("attack", [_mouse(MOUSE_BUTTON_LEFT), _axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)])
 	_add_action("block", [_mouse(MOUSE_BUTTON_RIGHT), _axis(JOY_AXIS_TRIGGER_LEFT, 1.0)])
+	_add_action("parry", [_key(KEY_F), _mouse(MOUSE_BUTTON_XBUTTON1), _button(JOY_BUTTON_RIGHT_SHOULDER)])
 	_add_action("weapon_next", [_mouse(MOUSE_BUTTON_WHEEL_DOWN), _button(JOY_BUTTON_Y)])
 	_add_action("weapon_prev", [_mouse(MOUSE_BUTTON_WHEEL_UP)])
 	for i in 9:

@@ -6,6 +6,7 @@ extends CharacterBody3D
 ## premi "parata" fai parry e il cavaliere resta stordito; i colpi durante lo stordimento
 ## fanno danno doppio. Mentre attacca non viene interrotto dai colpi (solo il parry lo ferma).
 ## Animazioni nell'AnimationPlayer: idle, walk, attack, hurt, stagger, death.
+## Per muoversi usa la navmesh (NavigationAgent3D); se non c'è, va dritto verso il player.
 
 signal died
 
@@ -44,9 +45,11 @@ var _cooldown := 0.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _flash_material: StandardMaterial3D
 var _flash_tween: Tween
+var _repath_time := 0.0
 
 @onready var anim: AnimationPlayer = $AnimationPlayer
 @onready var _collision: CollisionShape3D = $CollisionShape3D
+@onready var _agent: NavigationAgent3D = $NavigationAgent3D
 
 
 func _ready() -> void:
@@ -69,13 +72,19 @@ func _physics_process(delta: float) -> void:
 			if _player and _distance_to_player() < detect_range:
 				state = State.CHASE
 		State.CHASE:
-			_face_player(delta)
 			var distance := _distance_to_player()
-			if distance <= attack_range and _cooldown <= 0.0:
+			if distance <= attack_range and _cooldown <= 0.0 and _can_see_player():
+				_face_player(delta)
 				_start_attack()
 			else:
-				if distance > attack_range * 0.8:
-					desired = -global_basis.z * move_speed
+				var direction := _chase_direction(delta)
+				if distance > attack_range * 0.8 or not _can_see_player():
+					desired = direction * move_speed
+				# Da vicino guarda il player, altrimenti la direzione in cui cammina.
+				if distance < 4.0 and _can_see_player():
+					_face_player(delta)
+				else:
+					_face_direction(direction, delta)
 				_play_loop(&"walk" if desired != Vector3.ZERO else &"idle")
 		State.ATTACK:
 			if anim.current_animation_position < attack_tracking_time:
@@ -174,12 +183,45 @@ func _distance_to_player() -> float:
 
 
 func _face_player(delta: float) -> void:
-	var to_player := _player.global_position - global_position
-	to_player.y = 0.0
-	if to_player.length_squared() < 0.0001:
+	_face_direction(_player.global_position - global_position, delta)
+
+
+func _face_direction(direction: Vector3, delta: float) -> void:
+	direction.y = 0.0
+	if direction.length_squared() < 0.0001:
 		return
-	var target_yaw := atan2(-to_player.x, -to_player.z)  # il modello guarda verso -Z
+	var target_yaw := atan2(-direction.x, -direction.z)  # il modello guarda verso -Z
 	rotation.y = lerp_angle(rotation.y, target_yaw, 1.0 - exp(-turn_speed * delta))
+
+
+## Direzione (orizzontale, normalizzata) per avvicinarsi al player seguendo la navmesh.
+func _chase_direction(delta: float) -> Vector3:
+	var direct := _player.global_position - global_position
+	direct.y = 0.0
+	direct = direct.normalized()
+	# Niente navmesh (o non ancora pronta): si va dritti.
+	if NavigationServer3D.map_get_iteration_id(_agent.get_navigation_map()) == 0:
+		return direct
+	_repath_time -= delta
+	if _repath_time <= 0.0:
+		_repath_time = 0.25
+		_agent.target_position = _player.global_position
+	if _agent.is_navigation_finished():
+		return direct
+	var to_next := _agent.get_next_path_position() - global_position
+	to_next.y = 0.0
+	if to_next.length_squared() < 0.0025:
+		return direct
+	return to_next.normalized()
+
+
+## true se tra il knight e il player non ci sono muri (raggio all'altezza del busto).
+func _can_see_player() -> bool:
+	var from := global_position + Vector3.UP * 1.4
+	var ray := PhysicsRayQueryParameters3D.create(from, _player.global_position + Vector3.UP * 1.2)
+	ray.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
+	return hit.is_empty() or hit.collider == _player
 
 
 func _push_away_from(from: Vector3, strength: float) -> void:
