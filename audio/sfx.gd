@@ -53,15 +53,16 @@ static func play(context: Node, sound: StringName, volume_db := 0.0, pitch_jitte
 
 
 ## Suono 3D in un punto del mondo (si sente più piano da lontano).
+## unit_size: distanza (m) entro cui si sente a volume pieno; più piccolo = si spegne prima.
 static func play_at(context: Node, sound: StringName, position: Vector3, volume_db := 0.0,
-		pitch_jitter := 0.08) -> AudioStreamPlayer3D:
+		pitch_jitter := 0.08, unit_size := 8.0) -> AudioStreamPlayer3D:
 	var stream := pick(sound)
 	if stream == null or not context.is_inside_tree():
 		return null
 	var player := AudioStreamPlayer3D.new()
 	player.stream = stream
 	player.volume_db = volume_db
-	player.unit_size = 8.0
+	player.unit_size = unit_size
 	player.max_distance = 60.0
 	player.pitch_scale = randf_range(1.0 - pitch_jitter, 1.0 + pitch_jitter)
 	player.bus = BUS
