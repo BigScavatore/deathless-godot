@@ -37,6 +37,9 @@ signal critical_hit(target: Node3D, kind: StringName)
 @export var parry_window := 0.25
 ## Tempo minimo tra due parry (così non si può premere a raffica).
 @export var parry_cooldown := 0.5
+## Dopo un parry riuscito il player è invincibile per questo tempo (secondi),
+## così un altro nemico non lo colpisce durante il colpo di brocchiero o la riposte.
+@export var parry_invulnerability := 0.6
 ## Angolo (dal centro della visuale) entro cui il brocchiero protegge.
 @export var block_angle_deg := 75.0
 
@@ -47,6 +50,7 @@ var _wants_block := false
 var _attack_queued := false
 var _parry_until := 0
 var _parry_ready_at := 0
+var _invulnerable_until := 0
 var _critical_target: Node3D
 var _critical_kind := &""
 
@@ -96,6 +100,11 @@ func parry_pressed() -> void:
 	Sfx.play(self, &"parry_whiff", -8.0)
 
 
+## Invincibile durante riposte/backstab e per poco dopo un parry riuscito.
+func is_invulnerable() -> bool:
+	return _is_critical() or Time.get_ticks_msec() < _invulnerable_until
+
+
 func can_switch() -> bool:
 	return not _is_slashing() and not _is_critical()
 
@@ -114,6 +123,7 @@ func defend(source_position: Vector3) -> Combat.HitResult:
 	if Time.get_ticks_msec() <= _parry_until:
 		_parry_until = 0
 		_parry_ready_at = 0  # parry riuscito: puoi subito pararne un altro
+		_invulnerable_until = Time.get_ticks_msec() + int(parry_invulnerability * 1000.0)
 		parried.emit()
 		Sfx.play(self, &"parry", 0.0, 0.05)
 		return Combat.HitResult.PARRIED

@@ -24,10 +24,19 @@ signal died
 @export var speed := 14.0
 @export var jump_velocity := 10.0
 @export var gravity_scale := 2.5
-@export var acceleration := 90.0
-@export var air_acceleration := 25.0
-@export var friction := 70.0
-@export var air_friction := 2.0
+## Accelerazione a terra (m/s²): più alta = risposta più immediata.
+@export var acceleration := 150.0
+## Frenata a terra quando non premi niente.
+@export var friction := 120.0
+## Frenata extra quando premi nella direzione opposta a quella in cui vai (cambi di direzione secchi).
+@export var turn_braking := 140.0
+## Controllo in aria.
+@export var air_acceleration := 45.0
+@export var air_friction := 4.0
+## In aria, sopra la velocità normale (dopo dash o scivolata): quanto curva lo slancio
+## verso i tasti premuti (radianti al secondo) e quanto rallenta verso la velocità normale.
+@export var air_turn_rate := 4.0
+@export var air_overspeed_drag := 3.0
 @export var jump_buffer_time := 0.1
 @export var coyote_time := 0.1
 
@@ -272,6 +281,9 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 		return Combat.HitResult.IGNORED
 	var result := Combat.HitResult.HIT
 	var weapon: Weapon = _viewmodel.current_weapon()
+	# Invincibile durante i colpi critici (comandi bloccati) e subito dopo un parry.
+	if _locked_time > 0.0 or (weapon and weapon.is_invulnerable()):
+		return Combat.HitResult.IGNORED
 	if weapon and source:
 		result = weapon.defend(source.global_position)
 
@@ -348,13 +360,25 @@ func _process_movement(delta: float) -> void:
 
 	# Movimento orizzontale
 	var wish := _wish_direction()
+	var wish2 := Vector2(wish.x, wish.z)
 	var horizontal := Vector2(velocity.x, velocity.z)
-	if wish != Vector3.ZERO:
-		var accel := acceleration if on_floor else air_acceleration
-		horizontal = horizontal.move_toward(Vector2(wish.x, wish.z) * speed, accel * delta)
+	if on_floor:
+		if wish2 == Vector2.ZERO:
+			horizontal = horizontal.move_toward(Vector2.ZERO, friction * delta)
+		else:
+			var rate := acceleration
+			if horizontal.dot(wish2) < 0.0:
+				rate += turn_braking  # stai invertendo: frena di più
+			horizontal = horizontal.move_toward(wish2 * speed, rate * delta)
+	elif wish2 != Vector2.ZERO and horizontal.length() > speed:
+		# Slancio oltre la velocità normale: curva verso i tasti senza perderlo di colpo.
+		var turn := clampf(horizontal.angle_to(wish2), -air_turn_rate * delta, air_turn_rate * delta)
+		horizontal = horizontal.rotated(turn)
+		horizontal = horizontal.move_toward(horizontal.normalized() * speed, air_overspeed_drag * delta)
+	elif wish2 != Vector2.ZERO:
+		horizontal = horizontal.move_toward(wish2 * speed, air_acceleration * delta)
 	else:
-		var decel := friction if on_floor else air_friction
-		horizontal = horizontal.move_toward(Vector2.ZERO, decel * delta)
+		horizontal = horizontal.move_toward(Vector2.ZERO, air_friction * delta)
 
 	velocity.x = horizontal.x
 	velocity.z = horizontal.y

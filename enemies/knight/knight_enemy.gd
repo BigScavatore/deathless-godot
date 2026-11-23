@@ -222,7 +222,7 @@ func _swing_sound() -> void:
 
 # Chiamato dall'animazione "walk" a ogni passo.
 func _footstep() -> void:
-	Sfx.play_at(self, &"step_armor", global_position, -8.0, 0.12)
+	Sfx.play_at(self, &"step_armor", global_position, -20.0, 0.12, 3.0)
 
 
 # Chiamato dalle animazioni di caduta quando il corpo tocca terra.

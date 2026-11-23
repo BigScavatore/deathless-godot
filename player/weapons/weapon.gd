@@ -58,6 +58,11 @@ func reset_state() -> void:
 	pass
 
 
+## true quando il player non può essere colpito (es. durante un colpo critico o subito dopo un parry).
+func is_invulnerable() -> bool:
+	return false
+
+
 ## Il player sta per essere colpito da un attacco che arriva da `source_position`:
 ## l'arma può pararlo (scudo, parry...). Restituisce un Combat.HitResult.
 func defend(_source_position: Vector3) -> Combat.HitResult:
