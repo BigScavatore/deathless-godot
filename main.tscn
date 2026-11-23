@@ -1,6 +1,8 @@
 [gd_scene format=3 uid="uid://bhmng1crutjv2"]
 
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="1_player"]
+[ext_resource type="Script" path="res://enemies/enemy_spawner.gd" id="2_spawner"]
+[ext_resource type="PackedScene" path="res://enemies/knight/knight.tscn" id="3_knight"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_7dm0k"]
 sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
@@ -64,3 +66,15 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.5, 4)
 material = SubResource("StandardMaterial3D_wall")
 use_collision = true
 size = Vector3(5, 3, 5)
+
+[node name="Enemies" type="Node3D" parent="."]
+
+[node name="KnightSpawner" type="Marker3D" parent="Enemies"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0, -2)
+script = ExtResource("2_spawner")
+enemy_scene = ExtResource("3_knight")
+
+[node name="KnightSpawner2" type="Marker3D" parent="Enemies"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, -6)
+script = ExtResource("2_spawner")
+enemy_scene = ExtResource("3_knight")

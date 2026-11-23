@@ -212,14 +212,14 @@ def jitter(tris, amount, seed):
 # ---------------------------------------------------------------------------
 
 # Pivot (vicino alla spalla) e posizione del polso, in spazio camera (+X destra, +Y su, camera guarda -Z)
-SWORD_PIVOT = (0.30, -0.34, -0.12)
-SWORD_WRIST = (-0.04, 0.10, -0.38)         # relativo al pivot
+SWORD_PIVOT = (0.32, -0.36, -0.04)
+SWORD_WRIST = (-0.02, 0.08, -0.24)         # relativo al pivot (vicino al corpo: claymore tenuta "in guardia")
 SWORD_FOREARM_ROT = (104, 0, 24)
-SWORD_ROT = (-24, 0, 6)                    # inclinazione della spada (lama in avanti e verso il centro)
+SWORD_ROT = (-44, 0, 4)                    # inclinazione della spada (lama in avanti e verso il centro)
 
-SHIELD_PIVOT = (-0.30, -0.34, -0.12)
-SHIELD_POS = (-0.04, 0.28, -0.46)          # centro dello scudo, relativo al pivot
-SHIELD_ROT = (6, 25, 10)                   # il retro dello scudo guarda il player, un po' verso il centro
+SHIELD_PIVOT = (-0.36, -0.40, -0.04)
+SHIELD_POS = (-0.06, 0.22, -0.32)          # centro dello scudo, relativo al pivot
+SHIELD_ROT = (6, 40, 14)                   # il retro dello scudo guarda il player, girato verso il centro
 
 
 def forearm(wrist, rot, seed):
@@ -236,33 +236,41 @@ def forearm(wrist, rot, seed):
 
 
 def build_sword():
-    # Asse dell'impugnatura = +Y, mano all'origine, la lama punta verso +Y.
+    # Claymore. Asse dell'impugnatura = +Y, mano all'origine, la lama punta verso +Y.
+    # Impugnatura lunga (a due mani), guardia con bracci inclinati verso la lama e terminali a quadrifoglio.
     parts = [
-        (jitter(cyl(0.034, 0.030, 0.05, seg=6, base=(0, -0.135, 0)), 0.002, 1), "rust"),   # pomolo
-        (cyl(0.021, 0.019, 0.15, seg=6, base=(0, -0.09, 0)), "leather"),                    # impugnatura
-        (box((0.11, 0.026, 0.042), (0, 0.073, 0)), "iron"),                                 # guardia
-        (place(box((0.08, 0.022, 0.036)), pos=(0.085, 0.066, 0), rot=(0, 0, -18)), "rust"),
-        (place(box((0.08, 0.022, 0.036)), pos=(-0.085, 0.066, 0), rot=(0, 0, 18)), "iron"),
+        (jitter(cyl(0.040, 0.034, 0.06, seg=6, base=(0, -0.33, 0)), 0.002, 1), "rust"),    # pomolo
+        (cyl(0.022, 0.020, 0.30, seg=6, base=(0, -0.27, 0)), "leather"),                    # impugnatura lunga
+        (cyl(0.025, 0.025, 0.02, seg=6, base=(0, -0.16, 0)), "iron"),                       # anello sull'impugnatura
+        (box((0.09, 0.034, 0.05), (0, 0.075, 0)), "iron"),                                  # centro guardia
+        (box((0.05, 0.05, 0.016), (0, 0.11, 0)), "iron"),                                   # langet
         # pugno
         (box((0.09, 0.085, 0.095), (0, -0.005, 0)), "leather"),
         (box((0.095, 0.022, 0.030), (0, 0.05, -0.045)), "iron"),                            # nocche
         (box((0.026, 0.05, 0.03), (-0.01, 0.048, 0.05)), "leather"),                        # pollice
     ]
-    # Lama a segmenti con piccole tacche e scheggiature (ogni segmento è convesso)
+    for side, mat in [(1, "rust"), (-1, "iron")]:
+        arm_rot = (0, 0, 24 * side)                                                         # bracci verso la lama
+        parts.append((place(box((0.15, 0.028, 0.040)), pos=(0.105 * side, 0.105, 0), rot=arm_rot), mat))
+        for dx, dy in [(0, 0), (0.022, 0), (0, 0.022), (0.011, 0.011)]:                     # quadrifoglio
+            parts.append((box((0.026, 0.026, 0.036), (side * (0.175 + dx), 0.135 + dy, 0)), "iron"))
+    # Lama larga e lunga a segmenti con tacche e scheggiature (ogni segmento è convesso)
     segments = [  # (lunghezza, largh. base, largh. cima, spess. base, spess. cima)
-        (0.11, 0.060, 0.058, 0.014, 0.013),
-        (0.11, 0.055, 0.054, 0.013, 0.012),   # tacca
-        (0.11, 0.057, 0.052, 0.012, 0.012),   # sporgenza
-        (0.11, 0.049, 0.050, 0.011, 0.011),   # scheggiatura
-        (0.11, 0.051, 0.047, 0.011, 0.010),
-        (0.10, 0.044, 0.040, 0.010, 0.009),
+        (0.12, 0.080, 0.078, 0.018, 0.017),
+        (0.12, 0.074, 0.073, 0.017, 0.016),   # tacca
+        (0.12, 0.077, 0.072, 0.016, 0.016),   # sporgenza
+        (0.12, 0.068, 0.069, 0.015, 0.015),   # scheggiatura
+        (0.12, 0.070, 0.066, 0.015, 0.014),
+        (0.12, 0.064, 0.062, 0.014, 0.013),
+        (0.12, 0.060, 0.056, 0.013, 0.012),   # tacca
+        (0.11, 0.058, 0.050, 0.012, 0.011),
     ]
-    y = 0.086
+    y = 0.13
     for i, (length, wb, wt, tb, tt) in enumerate(segments):
         seg = taper((wb, tb), (wt, tt), length, base=(0, y, 0))
         parts.append((jitter(seg, 0.0012, 10 + i), "steel"))
         y += length
-    tip = place(taper((0.040, 0.009), (0.0, 0.0), 0.085), pos=(0, y, 0), rot=(0, 0, 5))  # punta storta
+    tip = place(taper((0.050, 0.011), (0.0, 0.0), 0.12), pos=(0, y, 0), rot=(0, 0, 4))  # punta storta
     parts.append((tip, "steel"))
     return node("Sword", pos=SWORD_WRIST, rot=SWORD_ROT, parts=parts)
 

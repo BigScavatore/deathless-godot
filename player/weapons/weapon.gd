@@ -51,6 +51,12 @@ func reset_state() -> void:
 	pass
 
 
+## Il player sta per essere colpito da un attacco che arriva da `source_position`:
+## l'arma può pararlo (scudo, parry...). Restituisce un Combat.HitResult.
+func defend(_source_position: Vector3) -> Combat.HitResult:
+	return Combat.HitResult.HIT
+
+
 # --- Equip / unequip (coroutine: usale con await) --------------------------
 
 func equip() -> void:

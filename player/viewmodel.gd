@@ -79,6 +79,8 @@ func cycle(step: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not is_visible_in_tree():
+		return
 	# Col mouse libero il click serve solo a ricatturarlo (lo gestisce player.gd).
 	if event is InputEventMouseButton and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
