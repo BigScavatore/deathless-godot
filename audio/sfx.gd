@@ -6,7 +6,7 @@ class_name Sfx
 ##   Sfx.play(self, &"swing")                       # suono "in testa" (player, arma)
 ##   Sfx.play_at(self, &"hit_armor", position)      # suono 3D nel mondo (nemici, impatti)
 ##
-## Tutti gli effetti passano dal bus audio "SFX" (default_bus_layout.tres): il volume
+## Tutti gli effetti passano dal bus audio "SFX" (default_bus_layout.tres, -12 dB): il volume
 ## generale degli effetti si regola lì, dal pannello Audio in basso nell'editor.
 
 const SOUND_DIR := "res://assets/sounds/"
