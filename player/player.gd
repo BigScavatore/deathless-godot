@@ -1,7 +1,13 @@
 extends CharacterBody3D
-## Controller in prima persona stile ULTRAKILL: movimento veloce, dash a cariche e wall jump.
+## Controller in prima persona stile ULTRAKILL: movimento veloce, dash a cariche, wall jump,
+## scivolata e slam.
 ## WASD / stick sinistro = movimento, Spazio / A = salto (anche wall jump),
-## Shift / B = dash, mouse / stick destro = camera, Esc = rilascia il mouse.
+## Shift / B = dash, Ctrl / C / LB = scivolata (a terra) o slam (in aria),
+## mouse / stick destro = camera, Esc = rilascia il mouse.
+## Scivolata: velocità costante finché tieni premuto; saltando durante la scivolata
+## mantieni lo slancio (salto lungo).
+## Slam: picchiata verso il basso; all'impatto danneggia e lancia i nemici vicini.
+## Saltando subito dopo lo slam fai un salto molto più alto (slam jump).
 ## Vita e danno: vedi take_damage() (convenzione in combat/combat.gd).
 
 signal health_changed(health: float, max_health: float)
@@ -33,6 +39,23 @@ signal died
 @export var dash_charges_max := 3
 ## Secondi necessari per ricaricare una singola carica.
 @export var dash_recharge_time := 1.0
+
+@export_group("Slide")
+@export var slide_speed := 18.0
+## Altezza della capsula e degli occhi durante la scivolata.
+@export var slide_height := 1.0
+@export var slide_eye_height := 0.75
+@export var slide_fov_boost := 6.0
+
+@export_group("Slam")
+@export var slam_speed := 45.0
+@export var slam_radius := 4.0
+@export var slam_damage := 20.0
+## Velocità verso l'alto data ai nemici colpiti dallo slam.
+@export var slam_launch := 7.0
+## Salto potenziato se premi salto entro questo tempo dall'atterraggio dello slam.
+@export var slam_jump_window := 0.25
+@export var slam_jump_velocity := 19.0
 
 @export_group("Wall Jump")
 @export var max_wall_jumps := 3
@@ -78,6 +101,13 @@ var _wall_time := 0.0
 var _coyote := 0.0
 var _jump_buffer := 0.0
 
+var _sliding := false
+var _slide_dir := Vector3.ZERO
+var _crouch := 0.0  # 0 = in piedi, 1 = abbassato (scivolata)
+var _slamming := false
+var _slam_jump_time := 0.0
+var _locked_time := 0.0
+
 
 func _ready() -> void:
 	_apply_size()
@@ -94,7 +124,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _dead:
 		return
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and _locked_time <= 0.0:
 		_rotate_camera(event.relative * mouse_sensitivity)
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -114,6 +144,10 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 
+	if _locked_time > 0.0:
+		_process_locked(delta)
+		return
+
 	var look := Input.get_vector("look_left", "look_right", "look_up", "look_down")
 	if look != Vector2.ZERO:
 		_rotate_camera(look * stick_sensitivity * delta)
@@ -121,15 +155,64 @@ func _physics_process(delta: float) -> void:
 	_update_timers(delta)
 
 	if Input.is_action_just_pressed("dash") and _dash_time_left <= 0.0 and _dash_charges >= 1.0:
+		_sliding = false
+		_slamming = false
 		_start_dash()
 
-	if _dash_time_left > 0.0:
+	if _dash_time_left <= 0.0 and not _slamming:
+		if Input.is_action_just_pressed("slide") and not is_on_floor():
+			_start_slam()
+		elif Input.is_action_pressed("slide") and is_on_floor() and not _sliding:
+			_start_slide()
+
+	if _slamming:
+		_process_slam()
+	elif _dash_time_left > 0.0:
 		_process_dash(delta)
+	elif _sliding:
+		_process_slide(delta)
 	else:
 		_process_movement(delta)
 
 	move_and_slide()
+	if _slamming and is_on_floor():
+		_land_slam()
 	_update_wall_contact()
+	_update_crouch(delta)
+	_update_fov(delta)
+
+
+## true durante la scivolata (lo usa il viewmodel).
+func is_sliding() -> bool:
+	return _sliding
+
+
+## Blocca movimento e visuale per "duration" secondi (colpi critici): il player scivola
+## in "stand_at" e si gira verso "look_at_point".
+func lock_for(duration: float, stand_at: Vector3, look_at_point: Vector3) -> void:
+	_locked_time = duration
+	_sliding = false
+	_slamming = false
+	_dash_time_left = 0.0
+	velocity = Vector3.ZERO
+	var to_target := look_at_point - stand_at
+	to_target.y = 0.0
+	var target_yaw := atan2(-to_target.x, -to_target.z) if to_target.length_squared() > 0.0001 else rotation.y
+	var tween := create_tween().set_parallel().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(self, "global_position:x", stand_at.x, 0.15)
+	tween.tween_property(self, "global_position:z", stand_at.z, 0.15)
+	tween.tween_property(self, "rotation:y", rotation.y + wrapf(target_yaw - rotation.y, -PI, PI), 0.15)
+	tween.tween_property(_head, "rotation:x", deg_to_rad(-8.0), 0.2)
+
+
+func _process_locked(delta: float) -> void:
+	_locked_time -= delta
+	velocity.x = 0.0
+	velocity.z = 0.0
+	if not is_on_floor():
+		velocity.y -= _gravity * gravity_scale * delta
+	move_and_slide()
+	_update_crouch(delta)
 	_update_fov(delta)
 
 
@@ -142,6 +225,29 @@ func _apply_size() -> void:
 	_collision.shape = capsule
 	_collision.position.y = player_height / 2.0
 	_head.position.y = eye_height
+
+
+# Abbassa capsula e camera durante la scivolata (e resta giù se sopra c'è un soffitto basso).
+func _update_crouch(delta: float) -> void:
+	var want_low := _sliding or (_crouch > 0.01 and not _can_stand())
+	_crouch = move_toward(_crouch, 1.0 if want_low else 0.0, delta * 8.0)
+	var t := smoothstep(0.0, 1.0, _crouch)
+	var capsule := _collision.shape as CapsuleShape3D
+	capsule.height = lerpf(player_height, slide_height, t)
+	_collision.position.y = capsule.height / 2.0
+	_head.position.y = lerpf(eye_height, slide_eye_height, t)
+	_head.rotation.z = lerp_angle(_head.rotation.z, deg_to_rad(-4.0) if _sliding else 0.0, 1.0 - exp(-10.0 * delta))
+
+
+func _can_stand() -> bool:
+	var shape := CapsuleShape3D.new()
+	shape.height = player_height
+	shape.radius = player_radius * 0.95
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * (player_height / 2.0 + 0.05))
+	query.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
 
 
 # --- Vita e danno ---------------------------------------------------------
@@ -215,7 +321,8 @@ func _process_movement(delta: float) -> void:
 	# Salto e wall jump (con jump buffer: premere poco prima di toccare conta)
 	if _jump_buffer > 0.0:
 		if _coyote > 0.0:
-			velocity.y = jump_velocity
+			velocity.y = slam_jump_velocity if _slam_jump_time > 0.0 else jump_velocity
+			_slam_jump_time = 0.0
 			_jump_buffer = 0.0
 			_coyote = 0.0
 		elif _wall_time > 0.0 and _wall_jumps_left > 0:
@@ -239,6 +346,69 @@ func _wish_direction() -> Vector3:
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	# Il corpo ruota solo in yaw, quindi la sua base è già "orizzontale".
 	return global_basis * Vector3(input.x, 0.0, input.y)
+
+
+# --- Scivolata -------------------------------------------------------------
+
+func _start_slide() -> void:
+	var dir := _wish_direction()
+	if dir == Vector3.ZERO:
+		dir = -global_basis.z
+	_slide_dir = dir.normalized()
+	_sliding = true
+
+
+func _process_slide(delta: float) -> void:
+	if not Input.is_action_pressed("slide"):
+		_sliding = false
+		_process_movement(delta)
+		return
+	# Velocità costante (o quella attuale, se più alta: es. uscendo da un dash).
+	var current := Vector2(velocity.x, velocity.z).length()
+	var slide := maxf(slide_speed, current)
+	velocity.x = _slide_dir.x * slide
+	velocity.z = _slide_dir.z * slide
+	velocity.y -= _gravity * gravity_scale * delta
+	if is_on_floor():
+		if _jump_buffer > 0.0:
+			# Salto lungo: si esce dalla scivolata tenendo lo slancio.
+			velocity.y = slam_jump_velocity if _slam_jump_time > 0.0 else jump_velocity
+			_slam_jump_time = 0.0
+			_jump_buffer = 0.0
+			_coyote = 0.0
+			_sliding = false
+	else:
+		_sliding = false  # finito il pavimento: si continua in aria con lo slancio
+
+
+# --- Slam ------------------------------------------------------------------
+
+func _start_slam() -> void:
+	_slamming = true
+	_sliding = false
+
+
+func _process_slam() -> void:
+	velocity = Vector3(0.0, -slam_speed, 0.0)
+
+
+func _land_slam() -> void:
+	_slamming = false
+	_slam_jump_time = slam_jump_window
+	velocity = Vector3.ZERO
+	add_shake(0.6)
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		var target := enemy as Node3D
+		if target == null or not target.has_method("take_damage"):
+			continue
+		var offset := target.global_position - global_position
+		if absf(offset.y) > 2.5:
+			continue
+		offset.y = 0.0
+		if offset.length() > slam_radius:
+			continue
+		if target.take_damage(slam_damage, self) != Combat.HitResult.IGNORED and target is CharacterBody3D:
+			(target as CharacterBody3D).velocity.y = slam_launch
 
 
 # --- Dash ------------------------------------------------------------------
@@ -292,6 +462,7 @@ func _update_wall_contact() -> void:
 func _update_timers(delta: float) -> void:
 	_coyote = coyote_time if is_on_floor() else maxf(_coyote - delta, 0.0)
 	_wall_time = maxf(_wall_time - delta, 0.0)
+	_slam_jump_time = maxf(_slam_jump_time - delta, 0.0)
 	if Input.is_action_just_pressed("jump"):
 		_jump_buffer = jump_buffer_time
 	else:
@@ -305,7 +476,11 @@ func _rotate_camera(amount: Vector2) -> void:
 
 
 func _update_fov(delta: float) -> void:
-	var target := dash_fov if _dash_time_left > 0.0 else base_fov
+	var target := base_fov
+	if _dash_time_left > 0.0:
+		target = dash_fov
+	elif _sliding:
+		target = base_fov + slide_fov_boost
 	_camera.fov = lerpf(_camera.fov, target, 1.0 - exp(-fov_lerp_speed * delta))
 
 
@@ -325,6 +500,7 @@ func _register_input_actions() -> void:
 	_add_action("look_right", [_axis(JOY_AXIS_RIGHT_X, 1.0)])
 	_add_action("jump", [_key(KEY_SPACE), _button(JOY_BUTTON_A)])
 	_add_action("dash", [_key(KEY_SHIFT), _button(JOY_BUTTON_B)])
+	_add_action("slide", [_key(KEY_CTRL), _key(KEY_C), _button(JOY_BUTTON_LEFT_SHOULDER)])
 
 	# Armi (usate da viewmodel.gd)
 	_add_action("attack", [_mouse(MOUSE_BUTTON_LEFT), _axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)])

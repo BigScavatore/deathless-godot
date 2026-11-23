@@ -5,12 +5,15 @@ extends CharacterBody3D
 ## L'attacco ha un segnale visivo (lampo giallo) poco prima del colpo: se in quel momento
 ## premi "parata" fai parry e il cavaliere resta stordito; i colpi durante lo stordimento
 ## fanno danno doppio. Mentre attacca non viene interrotto dai colpi (solo il parry lo ferma).
-## Animazioni nell'AnimationPlayer: idle, walk, attack, hurt, stagger, death.
+## Colpi critici (stile Dark Souls): da stordito può subire una riposte, e se lo prendi alle
+## spalle un backstab. Durante il critico è invulnerabile; se sopravvive si rialza.
+## Animazioni nell'AnimationPlayer: idle, walk, attack, hurt, stagger, death,
+## riposted, backstabbed, get_up.
 ## Per muoversi usa la navmesh (NavigationAgent3D); se non c'è, va dritto verso il player.
 
 signal died
 
-enum State { IDLE, CHASE, ATTACK, HURT, STAGGER, DEAD }
+enum State { IDLE, CHASE, ATTACK, HURT, STAGGER, CRITICAL, DEAD }
 
 @export_group("Stats")
 @export var max_health := 100.0
@@ -34,6 +37,8 @@ enum State { IDLE, CHASE, ATTACK, HURT, STAGGER, DEAD }
 ## Moltiplicatore del danno ricevuto mentre è stordito (riposte).
 @export var stagger_damage_mult := 2.0
 @export var knockback := 3.5
+## Angolo (dalla schiena) entro cui il player deve stare per il backstab.
+@export var backstab_angle_deg := 55.0
 ## Secondi prima che il corpo sparisca.
 @export var corpse_time := 5.0
 
@@ -46,6 +51,9 @@ var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _flash_material: StandardMaterial3D
 var _flash_tween: Tween
 var _repath_time := 0.0
+var _critical_kind := &""
+var _critical_attacker: Node3D
+var _critical_time := 0.0
 
 @onready var anim: AnimationPlayer = $AnimationPlayer
 @onready var _collision: CollisionShape3D = $CollisionShape3D
@@ -54,6 +62,7 @@ var _repath_time := 0.0
 
 func _ready() -> void:
 	health = max_health
+	add_to_group("enemy")
 	anim.animation_finished.connect(_on_animation_finished)
 	_setup_flash()
 	anim.play(&"idle")
@@ -89,6 +98,11 @@ func _physics_process(delta: float) -> void:
 		State.ATTACK:
 			if anim.current_animation_position < attack_tracking_time:
 				_face_player(delta)
+		State.CRITICAL:
+			# Nella riposte si gira verso chi lo trafigge (nel backstab resta di spalle).
+			_critical_time += delta
+			if _critical_kind == &"riposte" and _critical_time < 0.2 and _critical_attacker:
+				_face_direction(_critical_attacker.global_position - global_position, delta * 3.0)
 
 	# La velocità orizzontale va verso quella desiderata (così il knockback si smorza da solo).
 	var horizontal := Vector2(velocity.x, velocity.z).move_toward(Vector2(desired.x, desired.z), 20.0 * delta)
@@ -100,7 +114,7 @@ func _physics_process(delta: float) -> void:
 # --- Danno -----------------------------------------------------------------
 
 func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
-	if state == State.DEAD:
+	if state == State.DEAD or state == State.CRITICAL:
 		return Combat.HitResult.IGNORED
 	if state == State.STAGGER:
 		amount *= stagger_damage_mult
@@ -117,10 +131,11 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 	return Combat.HitResult.HIT
 
 
-func _die() -> void:
+func _die(play_animation := true) -> void:
 	state = State.DEAD
 	collision_layer = 0  # il player ci passa sopra, ma il corpo resta appoggiato al pavimento
-	_play_from_start(&"death")
+	if play_animation:
+		_play_from_start(&"death")
 	died.emit()
 	await get_tree().create_timer(corpse_time).timeout
 	queue_free()
@@ -132,6 +147,45 @@ func _stagger() -> void:
 	_flash(Color(1.0, 0.85, 0.3), 0.5)
 	if _player:
 		_push_away_from(_player.global_position, knockback * 1.5)
+
+
+# --- Colpi critici (riposte / backstab) -------------------------------------
+
+## Stordito dal parry: si può fare la riposte.
+func can_be_riposted() -> bool:
+	return state == State.STAGGER
+
+
+## Il punto "from" è alle sue spalle (e non sta già subendo un critico o morendo)?
+func can_be_backstabbed(from: Vector3) -> bool:
+	if state == State.DEAD or state == State.CRITICAL or state == State.STAGGER:
+		return false
+	var to_from := from - global_position
+	to_from.y = 0.0
+	if to_from.length_squared() < 0.0001:
+		return false
+	var back := global_basis.z  # il modello guarda verso -Z, quindi la schiena è +Z
+	back.y = 0.0
+	return back.normalized().dot(to_from.normalized()) >= cos(deg_to_rad(backstab_angle_deg))
+
+
+## Inizia l'animazione del critico; il danno arriva dopo con take_critical_damage().
+func begin_critical(kind: StringName, attacker: Node3D) -> void:
+	state = State.CRITICAL
+	_critical_kind = kind
+	_critical_attacker = attacker
+	_critical_time = 0.0
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_play_from_start(&"riposted" if kind == &"riposte" else &"backstabbed")
+
+
+## Danno del critico: non uccide subito, l'animazione continua fino a terra.
+func take_critical_damage(amount: float, _attacker: Node3D) -> void:
+	if state != State.CRITICAL:
+		return
+	health -= amount
+	_flash(Color(1.0, 0.1, 0.05), 0.4)
 
 
 # --- Attacco ---------------------------------------------------------------
@@ -170,8 +224,14 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		&"attack":
 			_cooldown = attack_cooldown
 			state = State.CHASE
-		&"hurt", &"stagger":
+		&"hurt", &"stagger", &"get_up":
 			state = State.CHASE
+		&"riposted", &"backstabbed":
+			if health <= 0.0:
+				_die(false)  # resta a terra com'è caduto
+			else:
+				_play_from_start(&"get_up")
+				state = State.HURT  # torna a CHASE alla fine di "get_up"
 
 
 # --- Utility ---------------------------------------------------------------

@@ -118,7 +118,8 @@ func _process(delta: float) -> void:
 	var velocity := _player.velocity if _player else Vector3.ZERO
 	var grounded := _player != null and _player.is_on_floor()
 	var horizontal := Vector2(velocity.x, velocity.z).length()
-	var run := clampf(horizontal / 14.0, 0.0, 1.0) if grounded else 0.0
+	var sliding: bool = _player != null and _player.has_method("is_sliding") and _player.is_sliding()
+	var run := clampf(horizontal / 14.0, 0.0, 1.0) if grounded and not sliding else 0.0
 
 	_bob_time += delta * (7.0 + 5.0 * run)
 	var target_pos := _base_position
@@ -126,6 +127,8 @@ func _process(delta: float) -> void:
 	target_pos.y += -absf(sin(_bob_time)) * bob_amount * run
 	target_pos.y += sin(_idle_time * 1.6) * 0.004                       # respiro
 	target_pos.y -= clampf(velocity.y * air_sway, -0.03, 0.03)          # salto / caduta
+	if sliding:
+		target_pos += Vector3(0.03, -0.05, 0.03)                          # armi basse in scivolata
 
 	var mouse := Input.get_last_mouse_velocity() if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Vector2.ZERO
 	var limit := deg_to_rad(max_mouse_sway_deg)
@@ -136,6 +139,7 @@ func _process(delta: float) -> void:
 	position = position.lerp(target_pos, t)
 	rotation.y = lerp_angle(rotation.y, target_yaw, t)
 	rotation.x = lerp_angle(rotation.x, target_pitch, t)
+	rotation.z = lerp_angle(rotation.z, 0.12 if sliding else 0.0, t)
 
 
 # Materiale delle armi: viewmodel.gdshader (texture pixelate, FOV proprio, niente compenetrazioni)
