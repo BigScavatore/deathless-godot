@@ -133,7 +133,7 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 		amount *= stagger_damage_mult
 	health -= amount
 	_flash(Color(1.0, 0.1, 0.05))
-	Sfx.play_at(self, &"hit_armor", global_position + Vector3.UP * 1.2, 2.0)
+	Sfx.play_at(self, &"hit_armor", global_position + Vector3.UP * 1.2, 0.0)
 	if source:
 		_push_away_from(source.global_position, knockback)
 
@@ -227,7 +227,7 @@ func _footstep() -> void:
 
 # Chiamato dalle animazioni di caduta quando il corpo tocca terra.
 func _body_fall() -> void:
-	Sfx.play_at(self, &"body_fall", global_position + Vector3.UP * 0.3, 2.0)
+	Sfx.play_at(self, &"body_fall", global_position + Vector3.UP * 0.3, -2.0)
 
 
 # Chiamato dall'animazione "attack" nel frame d'impatto.

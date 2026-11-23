@@ -125,6 +125,7 @@ func _ready() -> void:
 	_slide_audio = AudioStreamPlayer.new()
 	_slide_audio.stream = Sfx.looping(&"slide_loop")
 	_slide_audio.volume_db = -7.0
+	_slide_audio.bus = Sfx.BUS
 	add_child(_slide_audio)
 
 
@@ -425,7 +426,7 @@ func _land_slam() -> void:
 	_slam_jump_time = slam_jump_window
 	velocity = Vector3.ZERO
 	add_shake(0.6)
-	Sfx.play(self, &"slam_impact", 3.0, 0.06)
+	Sfx.play(self, &"slam_impact", 0.0, 0.06)
 	for enemy in get_tree().get_nodes_in_group("enemy"):
 		var target := enemy as Node3D
 		if target == null or not target.has_method("take_damage"):

@@ -115,7 +115,7 @@ func defend(source_position: Vector3) -> Combat.HitResult:
 		_parry_until = 0
 		_parry_ready_at = 0  # parry riuscito: puoi subito pararne un altro
 		parried.emit()
-		Sfx.play(self, &"parry", 2.0, 0.05)
+		Sfx.play(self, &"parry", 0.0, 0.05)
 		return Combat.HitResult.PARRIED
 	if is_blocking:
 		_play_from_start(&"block_hit")
@@ -205,7 +205,7 @@ func _on_critical_hit() -> void:
 		return
 	var damage := backstab_damage if _critical_kind == &"backstab" else riposte_damage
 	_critical_target.take_critical_damage(damage, player)
-	Sfx.play(self, &"stab", 3.0, 0.05)
+	Sfx.play(self, &"stab", 0.0, 0.05)
 	critical_hit.emit(_critical_target, _critical_kind)
 	Combat.hitstop(self, 0.12)
 	if player and player.has_method("add_shake"):

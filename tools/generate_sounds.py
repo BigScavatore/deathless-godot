@@ -140,10 +140,12 @@ def follow(x, smooth=0.01):
     return np.convolve(np.abs(x), np.ones(n) / n, mode="same")
 
 
-def dirty(x, rng, drive=2.5, bits=8, hold=2, crackle=0.004):
+def dirty(x, rng, drive=2.5, bits=8, hold=2, crackle=0.004, tone=3200.0):
     """La parte "gritty": saturazione, campionamento ridotto, bitcrush e crepitii.
     Lo sporco (errore del bitcrush e crepitii) segue l'inviluppo del suono:
-    i colpi graffiano, ma le code si spengono pulite invece di lasciare un tappeto di rumore."""
+    i colpi graffiano, ma le code si spengono pulite invece di lasciare un tappeto di rumore.
+    Alla fine un passa-basso ("tone") toglie le frequenze più acute e le copie a specchio
+    create dal campionamento ridotto: sporco sì, ma scuro e non stridente."""
     x = x / (np.max(np.abs(x)) + 1e-9)
     env = np.clip(follow(x) * 4.0, 0.0, 1.0)
     x = np.tanh(drive * x) / np.tanh(drive)
@@ -154,7 +156,8 @@ def dirty(x, rng, drive=2.5, bits=8, hold=2, crackle=0.004):
     crushed = np.round(crushed * levels) / levels
     x = x + (crushed - x) * env
     pops = (rng.random(len(x)) < crackle) * rng.uniform(-0.15, 0.15, len(x))
-    return x + svf(pops, 3000.0, 0.7, "band") * env
+    x = x + svf(pops, 1800.0, 0.7, "band") * env
+    return svf(x, tone, 0.6, "low")
 
 
 def fade_out(x, duration=0.02):
@@ -177,23 +180,23 @@ def make_loop(x, fade=0.15):
 
 def snd_swing(rng):
     """Fendente della claymore: fruscio pesante con un filo di metallo che vibra."""
-    x = whoosh(rng, 0.42, 250, rng.uniform(1100, 1500), 350, q=1.6, peak_at=0.4)
-    x += 0.08 * metal(rng, 0.42, rng.uniform(1800, 2200), 0.12, partials=3) * np.linspace(0, 1, len(x)) ** 2
+    x = whoosh(rng, 0.42, 150, rng.uniform(600, 850), 200, q=1.6, peak_at=0.4)
+    x += 0.08 * metal(rng, 0.42, rng.uniform(900, 1100), 0.12, partials=3) * np.linspace(0, 1, len(x)) ** 2
     return dirty(fade_out(x), rng, drive=2.0)
 
 
 def snd_swing_heavy(rng):
     """Fendente del cavaliere: più grave e più lungo."""
-    x = whoosh(rng, 0.5, 150, rng.uniform(700, 900), 200, q=1.4, peak_at=0.5)
-    x += 0.5 * whoosh(rng, 0.5, 300, 1800, 300, q=3.0, peak_at=0.55)
+    x = whoosh(rng, 0.5, 100, rng.uniform(400, 550), 150, q=1.4, peak_at=0.5)
+    x += 0.5 * whoosh(rng, 0.5, 200, 900, 200, q=3.0, peak_at=0.55)
     return dirty(fade_out(x), rng, drive=2.2)
 
 
 def snd_hit_armor(rng):
     """Lama contro armatura: clang sporco + scricchiolio + tonfo sordo."""
     d = 0.55
-    x = 0.9 * metal(rng, d, rng.uniform(280, 420), 0.12, partials=7, bright=0.75)
-    crunch = grains(rng, d, 40, length=0.006, cutoff=2500, decay=0.04)
+    x = 0.9 * metal(rng, d, rng.uniform(180, 280), 0.12, partials=7, bright=0.65)
+    crunch = grains(rng, d, 40, length=0.006, cutoff=1400, decay=0.04)
     x += 1.4 * crunch
     x += 0.9 * thud(rng, d, 160, 55, 0.09)
     x[: int(0.004 * SR)] += white(rng, int(0.004 * SR)) * 1.5  # transiente
@@ -212,10 +215,10 @@ def snd_block(rng):
 def snd_parry(rng):
     """Parry: clang brillante che risuona a lungo, con una strusciata di lama."""
     d = 1.3
-    x = metal(rng, d, rng.uniform(850, 1050), 0.45, partials=7, bright=0.8)
-    x += 0.6 * metal(rng, d, rng.uniform(1900, 2300), 0.25, partials=4, bright=0.6)
+    x = metal(rng, d, rng.uniform(520, 650), 0.45, partials=7, bright=0.65)
+    x += 0.4 * metal(rng, d, rng.uniform(1100, 1300), 0.25, partials=4, bright=0.5)
     n = int(d * SR)
-    scrape = svf(white(rng, n), np.linspace(5000, 2500, n), 4.0, "band") * env_exp(n, 0.12)
+    scrape = svf(white(rng, n), np.linspace(2500, 1300, n), 4.0, "band") * env_exp(n, 0.12)
     x += 0.7 * scrape
     x += 0.8 * thud(rng, d, 300, 120, 0.05)
     x[: int(0.003 * SR)] += white(rng, int(0.003 * SR)) * 2.0
@@ -224,7 +227,7 @@ def snd_parry(rng):
 
 def snd_parry_whiff(rng):
     """Colpo di brocchiero a vuoto."""
-    x = whoosh(rng, 0.25, 200, 900, 300, q=1.2, peak_at=0.35)
+    x = whoosh(rng, 0.25, 150, 600, 200, q=1.2, peak_at=0.35)
     return dirty(fade_out(x), rng, drive=1.8)
 
 
@@ -232,9 +235,9 @@ def snd_telegraph(rng):
     """Segnale prima del colpo nemico: lama che striscia e brilla (momento del parry)."""
     d = 0.35
     n = int(d * SR)
-    scrape = svf(white(rng, n), np.linspace(2500, 6000, n), 6.0, "band")
+    scrape = svf(white(rng, n), np.linspace(1300, 3000, n), 6.0, "band")
     env = np.minimum(np.linspace(0, 1, n) * 4, 1) * env_exp(n, 0.12, attack=0.0)
-    x = scrape * env + 0.35 * metal(rng, d, rng.uniform(2600, 3000), 0.15, partials=3)
+    x = scrape * env + 0.35 * metal(rng, d, rng.uniform(1500, 1800), 0.15, partials=3)
     return dirty(fade_out(x), rng, drive=2.5)
 
 
@@ -243,7 +246,7 @@ def snd_stab(rng):
     d = 0.75
     n = int(d * SR)
     x = 0.8 * metal(rng, d, rng.uniform(250, 330), 0.06, partials=6, bright=0.8)  # piastra che cede
-    x += 1.2 * grains(rng, d, 60, length=0.008, cutoff=1800, decay=0.05)          # scricchiolio
+    x += 1.2 * grains(rng, d, 60, length=0.008, cutoff=1200, decay=0.05)          # scricchiolio
     wet = svf(white(rng, n), 900 * np.exp(-np.arange(n) / SR / 0.15) + 150, 5.0, "band")
     x += 1.6 * wet * env_exp(n, 0.18, attack=0.01)                                  # squelch
     x += 1.2 * thud(rng, d, 120, 45, 0.15)
@@ -255,7 +258,7 @@ def snd_stab_out(rng):
     d = 0.6
     n = int(d * SR)
     wet = svf(white(rng, n), 200 + 700 * np.linspace(0, 1, n) ** 2, 6.0, "band") * env_exp(n, 0.2, attack=0.04)
-    scrape = svf(white(rng, n), np.linspace(1500, 4000, n), 5.0, "band") * np.linspace(0.2, 1.0, n) * env_exp(n, 0.3)
+    scrape = svf(white(rng, n), np.linspace(900, 2200, n), 5.0, "band") * np.linspace(0.2, 1.0, n) * env_exp(n, 0.3)
     x = 1.4 * wet + 0.6 * scrape + 0.8 * grains(rng, d, 30, length=0.01, cutoff=700, decay=0.15)
     return dirty(fade_out(x, 0.05), rng, drive=3.5)
 
@@ -266,7 +269,7 @@ def snd_step_armor(rng):
     x = 1.0 * thud(rng, d, 110, 50, 0.05)
     jingle = np.zeros(int(d * SR))
     for _ in range(6):
-        place(jingle, metal(rng, 0.12, rng.uniform(2500, 4500), 0.02, partials=3), rng.uniform(0.0, 0.08), rng.uniform(0.1, 0.25))
+        place(jingle, metal(rng, 0.12, rng.uniform(1500, 2600), 0.02, partials=3), rng.uniform(0.0, 0.08), rng.uniform(0.1, 0.25))
     x += jingle
     return dirty(fade_out(x), rng, drive=2.5)
 
@@ -291,7 +294,7 @@ def snd_player_hurt(rng):
 
 
 def snd_jump(rng):
-    x = whoosh(rng, 0.18, 300, 1200, 600, q=0.9, peak_at=0.3)
+    x = whoosh(rng, 0.18, 200, 700, 350, q=0.9, peak_at=0.3)
     return dirty(fade_out(x), rng, drive=1.5)
 
 
@@ -302,7 +305,7 @@ def snd_land(rng):
 
 
 def snd_dash(rng):
-    x = whoosh(rng, 0.3, 400, rng.uniform(2200, 2800), 800, q=1.0, peak_at=0.2)
+    x = whoosh(rng, 0.3, 250, rng.uniform(1100, 1400), 450, q=1.0, peak_at=0.2)
     return dirty(fade_out(x), rng, drive=2.0)
 
 
@@ -310,16 +313,16 @@ def snd_slide_loop(rng):
     """Scivolata: grattata continua su pietra con sassolini (ripetibile)."""
     d = 1.35
     n = int(d * SR)
-    base = svf(white(rng, n), 450.0, 0.6, "band") * 0.8
-    grit = svf(white(rng, n) * (rng.random(n) < 0.08), 2500.0, 1.0, "band") * 3.0
+    base = svf(white(rng, n), 300.0, 0.6, "band") * 0.8
+    grit = svf(white(rng, n) * (rng.random(n) < 0.08), 1400.0, 1.0, "band") * 3.0
     wobble = 0.75 + 0.25 * np.sin(2 * np.pi * 3.1 * np.arange(n) / SR)
-    x = (base + grit) * wobble + 0.6 * grains(rng, d, 70, length=0.004, cutoff=3000)
+    x = (base + grit) * wobble + 0.6 * grains(rng, d, 70, length=0.004, cutoff=1600)
     x = make_loop(x)
     return dirty(x, rng, drive=2.2, crackle=0.008)
 
 
 def snd_slam_dive(rng):
-    x = whoosh(rng, 0.45, 200, 1600, 1400, q=1.2, peak_at=0.85)
+    x = whoosh(rng, 0.45, 120, 900, 800, q=1.2, peak_at=0.85)
     return dirty(fade_out(x), rng, drive=2.0)
 
 
@@ -328,7 +331,7 @@ def snd_slam_impact(rng):
     d = 1.4
     x = 2.0 * thud(rng, d, 80, 28, 0.35)
     x += 1.2 * grains(rng, d, 160, length=0.012, cutoff=900, decay=0.25)
-    x += 0.6 * grains(rng, d, 80, length=0.004, cutoff=3500, decay=0.3)
+    x += 0.6 * grains(rng, d, 80, length=0.004, cutoff=2000, decay=0.3)
     n = int(d * SR)
     x += 0.8 * svf(white(rng, n), 300.0, 0.7, "low") * env_exp(n, 0.4)
     return dirty(fade_out(x, 0.15), rng, drive=4.0)
@@ -338,8 +341,8 @@ def snd_equip(rng):
     """Si estrae la claymore: lama che striscia nel fodero e un piccolo clang."""
     d = 0.5
     n = int(d * SR)
-    scrape = svf(white(rng, n), np.linspace(1800, 5000, n), 5.0, "band") * np.linspace(0.3, 1, n) * env_exp(n, 0.25)
-    x = scrape + place(np.zeros(n), metal(rng, 0.3, 1300, 0.08, partials=4), 0.32, 0.5)
+    scrape = svf(white(rng, n), np.linspace(1000, 2600, n), 5.0, "band") * np.linspace(0.3, 1, n) * env_exp(n, 0.25)
+    x = scrape + place(np.zeros(n), metal(rng, 0.3, 800, 0.08, partials=4), 0.32, 0.5)
     return dirty(fade_out(x), rng, drive=2.5)
 
 
@@ -366,7 +369,7 @@ SOUNDS = {  # nome: (funzione, varianti)
 }
 
 
-def write_wav(path, x, peak=0.89):
+def write_wav(path, x, peak=0.5):
     x = x / (np.max(np.abs(x)) + 1e-9) * peak
     data = np.clip(x * 32767, -32768, 32767).astype("<i2")
     with wave.open(str(path), "wb") as f:
