@@ -9,7 +9,8 @@ Tutto è sintetizzato qui, in modo deterministico (stesso seed = stesso suono):
   - fruscii (fendenti, dash): rumore filtrato con un passa-banda che si sposta nel tempo;
   - tonfi: sinusoidi con frequenza che scende + rumore grave;
   - "carne": rumore passa-basso a grani + risonanza che scende (squelch).
-Poi ogni suono viene "sporcato": saturazione, campionamento ridotto, bitcrush a 8 bit e crepitii.
+Poi ogni suono passa da dirty(): corpo sulle basse, saturazione morbida, pochi crepitii,
+passa-basso ripido e un riverbero scuro da sotterraneo (suono pesante e cupo, non "arcade").
 Ogni effetto ha più varianti (_1, _2, ...): il gioco ne sceglie una a caso con un pitch leggermente
 diverso, così i suoni ripetuti non stancano. Per cambiarne uno modifica la sua funzione snd_*.
 
@@ -140,24 +141,45 @@ def follow(x, smooth=0.01):
     return np.convolve(np.abs(x), np.ones(n) / n, mode="same")
 
 
-def dirty(x, rng, drive=2.5, bits=8, hold=2, crackle=0.004, tone=3200.0):
-    """La parte "gritty": saturazione, campionamento ridotto, bitcrush e crepitii.
-    Lo sporco (errore del bitcrush e crepitii) segue l'inviluppo del suono:
-    i colpi graffiano, ma le code si spengono pulite invece di lasciare un tappeto di rumore.
-    Alla fine un passa-basso ("tone") toglie le frequenze più acute e le copie a specchio
-    create dal campionamento ridotto: sporco sì, ma scuro e non stridente."""
+def room(x, rng, wet=0.22, decay=0.7):
+    """Riverbero scuro da ambiente in pietra: convoluzione con una coda di rumore filtrato
+    che decade (-60 dB in "decay" secondi). Allunga il suono della coda."""
+    n = int(decay * SR * 1.2)
+    t = np.arange(n) / SR
+    ir = white(rng, n) * np.exp(-t * 6.9 / decay)
+    ir = svf(ir, 800.0, 0.6, "low")
+    ir = np.concatenate([np.zeros(int(0.018 * SR)), ir])          # pre-delay: muri vicini
+    size = len(x) + len(ir)
+    wet_sig = np.fft.irfft(np.fft.rfft(x, size) * np.fft.rfft(ir, size), size)
+    wet_sig *= np.max(np.abs(x)) / (np.max(np.abs(wet_sig)) + 1e-9)
+    out = np.concatenate([x, np.zeros(len(ir))]) + wet * wet_sig
+    # taglia il silenzio in fondo
+    env = follow(out, 0.02)
+    last = np.nonzero(env > np.max(env) * 0.001)[0]
+    return out[: last[-1] + 1] if len(last) else out
+
+
+def dirty(x, rng, drive=1.8, crackle=0.002, tone=1900.0, body=0.6, wet=0.22, room_decay=0.7):
+    """Il carattere del suono: sporco ma scuro e "fisico", non da sala giochi.
+      - corpo: rinforza le frequenze basse (peso, armature pesanti);
+      - saturazione morbida (come un nastro/microfono spinto), niente bitcrush;
+      - pochi crepitii gravi che seguono l'inviluppo (polvere, non rumore digitale);
+      - tono: due passa-basso in serie (24 dB/ottava) che tagliano gli acuti;
+      - stanza: riverbero corto e scuro da sotterraneo (wet=0 per i suoni in loop)."""
     x = x / (np.max(np.abs(x)) + 1e-9)
     env = np.clip(follow(x) * 4.0, 0.0, 1.0)
+    x = x + body * svf(x, 220.0, 0.7, "low") * 2.0
+    x = x / (np.max(np.abs(x)) + 1e-9)
     x = np.tanh(drive * x) / np.tanh(drive)
-    crushed = x
-    if hold > 1:
-        crushed = np.repeat(crushed[::hold], hold)[:len(x)]
-    levels = 2 ** (bits - 1)
-    crushed = np.round(crushed * levels) / levels
-    x = x + (crushed - x) * env
-    pops = (rng.random(len(x)) < crackle) * rng.uniform(-0.15, 0.15, len(x))
-    x = x + svf(pops, 1800.0, 0.7, "band") * env
-    return svf(x, tone, 0.6, "low")
+    pops = (rng.random(len(x)) < crackle) * rng.uniform(-0.2, 0.2, len(x))
+    x = x + svf(pops, 700.0, 0.7, "band") * env
+    x = svf(svf(x, tone, 0.6, "low"), tone * 1.3, 0.6, "low")
+    if wet > 0.0:
+        # la parte asciutta sfuma dentro la coda (curva morbida: in dB scende in modo regolare)
+        n = min(int(0.18 * SR), int(len(x) * 0.4))
+        x[-n:] *= np.linspace(1.0, 0.0, n) ** 3
+        x = room(x, rng, wet, room_decay)
+    return x
 
 
 def fade_out(x, duration=0.02):
@@ -281,7 +303,7 @@ def snd_body_fall(rng):
     for _ in range(9):
         place(x, metal(rng, 0.3, rng.uniform(250, 700), 0.05, partials=5, bright=0.7), rng.exponential(0.12), rng.uniform(0.2, 0.6))
     x += 0.8 * grains(rng, d, 50, length=0.01, cutoff=1200, decay=0.2)
-    return dirty(fade_out(x, 0.1), rng, drive=3.5)
+    return dirty(fade_out(x, 0.1), rng, drive=2.8, wet=0.28, room_decay=1.0)
 
 
 def snd_player_hurt(rng):
@@ -318,7 +340,7 @@ def snd_slide_loop(rng):
     wobble = 0.75 + 0.25 * np.sin(2 * np.pi * 3.1 * np.arange(n) / SR)
     x = (base + grit) * wobble + 0.6 * grains(rng, d, 70, length=0.004, cutoff=1600)
     x = make_loop(x)
-    return dirty(x, rng, drive=2.2, crackle=0.008)
+    return dirty(x, rng, drive=2.0, crackle=0.004, wet=0.0)
 
 
 def snd_slam_dive(rng):
@@ -334,7 +356,7 @@ def snd_slam_impact(rng):
     x += 0.6 * grains(rng, d, 80, length=0.004, cutoff=2000, decay=0.3)
     n = int(d * SR)
     x += 0.8 * svf(white(rng, n), 300.0, 0.7, "low") * env_exp(n, 0.4)
-    return dirty(fade_out(x, 0.15), rng, drive=4.0)
+    return dirty(fade_out(x, 0.15), rng, drive=3.0, wet=0.3, room_decay=1.2)
 
 
 def snd_equip(rng):
@@ -369,7 +391,7 @@ SOUNDS = {  # nome: (funzione, varianti)
 }
 
 
-def write_wav(path, x, peak=0.5):
+def write_wav(path, x, peak=0.35):
     x = x / (np.max(np.abs(x)) + 1e-9) * peak
     data = np.clip(x * 32767, -32768, 32767).astype("<i2")
     with wave.open(str(path), "wb") as f:
