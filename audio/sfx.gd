@@ -5,8 +5,12 @@ class_name Sfx
 ##
 ##   Sfx.play(self, &"swing")                       # suono "in testa" (player, arma)
 ##   Sfx.play_at(self, &"hit_armor", position)      # suono 3D nel mondo (nemici, impatti)
+##
+## Tutti gli effetti passano dal bus audio "SFX" (default_bus_layout.tres): il volume
+## generale degli effetti si regola lì, dal pannello Audio in basso nell'editor.
 
 const SOUND_DIR := "res://assets/sounds/"
+const BUS := &"SFX"
 
 static var _cache := {}
 
@@ -40,6 +44,7 @@ static func play(context: Node, sound: StringName, volume_db := 0.0, pitch_jitte
 	player.stream = stream
 	player.volume_db = volume_db
 	player.pitch_scale = randf_range(1.0 - pitch_jitter, 1.0 + pitch_jitter)
+	player.bus = BUS
 	player.finished.connect(player.queue_free)
 	player.autoplay = true
 	# Differito: funziona anche se chiamato mentre la scena si sta ancora costruendo (_ready).
@@ -59,6 +64,7 @@ static func play_at(context: Node, sound: StringName, position: Vector3, volume_
 	player.unit_size = 8.0
 	player.max_distance = 60.0
 	player.pitch_scale = randf_range(1.0 - pitch_jitter, 1.0 + pitch_jitter)
+	player.bus = BUS
 	player.finished.connect(player.queue_free)
 	player.autoplay = true
 	player.position = position  # figlio diretto della root: posizione locale = globale
