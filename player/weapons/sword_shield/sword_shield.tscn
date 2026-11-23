@@ -329,6 +329,144 @@ tracks/3/keys = {
 "values": [Vector3(-0.26, -0.52, 0), Vector3(-0.05, -0.4, 0.12), Vector3(-0.26, -0.52, 0)]
 }
 
+[sub_resource type="Animation" id="Animation_riposte"]
+resource_name = "riposte"
+length = 1.2
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Model/Viewmodel/SwordArm:position")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.14, 0.24, 0.32, 0.7, 0.86, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0.34, -0.48, -0.04), Vector3(0.213, -0.025, 0.084), Vector3(0.07, 0.037, -0.41), Vector3(-0.058, 0.013, -0.476), Vector3(-0.107, -0.009, -0.439), Vector3(0.153, -0.037, 0.021), Vector3(0.34, -0.48, -0.04)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Model/Viewmodel/SwordArm:rotation")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.14, 0.24, 0.32, 0.7, 0.86, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(-0.96, -0.07, 0.175), Vector3(-1.012, 0, 0.175), Vector3(-0.809, -0.573, 0.982), Vector3(-0.591, -0.701, 1.193), Vector3(-0.939, -0.304, 0.473), Vector3(0, 0, 0)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Model/Viewmodel/ShieldArm:position")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.12, 0.95, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(-0.3, -0.36, -0.04), Vector3(-0.142, -0.713, -0.111), Vector3(-0.142, -0.713, -0.111), Vector3(-0.3, -0.36, -0.04)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Model/Viewmodel/ShieldArm:rotation")
+tracks/3/interp = 2
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0, 0.12, 0.95, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0.35, 0.45, 0.25), Vector3(0.35, 0.45, 0.25), Vector3(0, 0, 0)]
+}
+tracks/4/type = "method"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath(".")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0.24, 0.86),
+"transitions": PackedFloat32Array(1, 1),
+"values": [{
+"args": [],
+"method": &"_on_critical_hit"
+}, {
+"args": [],
+"method": &"_on_critical_release"
+}]
+}
+
+[sub_resource type="Animation" id="Animation_backstab"]
+resource_name = "backstab"
+length = 1.2
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Model/Viewmodel/SwordArm:position")
+tracks/0/interp = 2
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.14, 0.24, 0.32, 0.7, 0.86, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0.34, -0.48, -0.04), Vector3(0.201, 0.218, -0.046), Vector3(0.06, 0.111, -0.469), Vector3(-0.046, 0.08, -0.552), Vector3(-0.063, 0.127, -0.462), Vector3(0.153, -0.037, 0.021), Vector3(0.34, -0.48, -0.04)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Model/Viewmodel/SwordArm:rotation")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.14, 0.24, 0.32, 0.7, 0.86, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(-1.344, -0.07, 0.175), Vector3(-1.292, 0, 0.175), Vector3(-1.126, -0.869, 1.29), Vector3(-0.893, -0.662, 1.078), Vector3(-0.939, -0.304, 0.473), Vector3(0, 0, 0)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Model/Viewmodel/ShieldArm:position")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.12, 0.95, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(-0.3, -0.36, -0.04), Vector3(-0.142, -0.713, -0.111), Vector3(-0.142, -0.713, -0.111), Vector3(-0.3, -0.36, -0.04)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Model/Viewmodel/ShieldArm:rotation")
+tracks/3/interp = 2
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0, 0.12, 0.95, 1.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0.35, 0.45, 0.25), Vector3(0.35, 0.45, 0.25), Vector3(0, 0, 0)]
+}
+tracks/4/type = "method"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath(".")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0.24, 0.86),
+"transitions": PackedFloat32Array(1, 1),
+"values": [{
+"args": [],
+"method": &"_on_critical_hit"
+}, {
+"args": [],
+"method": &"_on_critical_release"
+}]
+}
+
 [sub_resource type="Animation" id="Animation_parry"]
 resource_name = "parry"
 length = 0.42
@@ -389,6 +527,8 @@ _data = {
 &"block": SubResource("Animation_block"),
 &"unblock": SubResource("Animation_unblock"),
 &"block_hit": SubResource("Animation_block_hit"),
+&"riposte": SubResource("Animation_riposte"),
+&"backstab": SubResource("Animation_backstab"),
 &"parry": SubResource("Animation_parry")
 }
 

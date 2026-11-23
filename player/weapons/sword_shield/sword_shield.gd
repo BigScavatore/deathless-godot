@@ -4,12 +4,16 @@ extends Weapon
 ##   click destro (tenuto)     = parata frontale: il danno è ridotto
 ##   F / tasto laterale / RB   = parry: un colpo di brocchiero in avanti. Se un attacco arriva
 ##                               entro "parry_window" secondi, nessun danno e il nemico resta stordito
-##                               (riposte = danno doppio). Se lo sbagli, c'è un piccolo cooldown.
+##                               Se lo sbagli, c'è un piccolo cooldown.
+##   colpi critici (stile Dark Souls), sempre col click sinistro:
+##     - riposte: davanti a un nemico stordito dal parry -> affondo che lo trafigge
+##     - backstab: alle spalle di un nemico -> pugnalata alla schiena
 ## Le pose sono nell'AnimationPlayer della scena: modificale dall'editor (pannello Animazione).
 
 ## Emesso nel frame d'impatto del fendente (chiave "method" nell'animazione "slash").
 signal slash_hit
 signal parried
+signal critical_hit(target: Node3D, kind: StringName)
 
 @export_group("Slash")
 @export var slash_damage := 35.0
@@ -17,6 +21,16 @@ signal parried
 @export var slash_reach := 2.8
 ## Larghezza e altezza del box del fendente.
 @export var slash_size := Vector2(2.6, 1.4)
+
+@export_group("Critical")
+@export var riposte_damage := 120.0
+@export var backstab_damage := 90.0
+## Distanza massima dal nemico stordito per la riposte.
+@export var riposte_range := 3.0
+## Distanza massima per il backstab.
+@export var backstab_range := 2.0
+## Quanto il nemico deve essere al centro della visuale (coseno dell'angolo).
+@export_range(0.0, 1.0) var critical_aim := 0.6
 
 @export_group("Block / parry")
 ## Secondi dopo la pressione di "parry" in cui un colpo viene parato con parry.
@@ -33,6 +47,8 @@ var _wants_block := false
 var _attack_queued := false
 var _parry_until := 0
 var _parry_ready_at := 0
+var _critical_target: Node3D
+var _critical_kind := &""
 
 
 func _ready() -> void:
@@ -40,8 +56,16 @@ func _ready() -> void:
 
 
 func primary_pressed() -> void:
-	if is_blocking or _is_parrying():
+	if _is_parrying():
+		_attack_queued = true  # riposte subito dopo il parry: parte appena finisce il colpo di brocchiero
 		return
+	if is_blocking or _is_critical():
+		return
+	if not _is_slashing():
+		var target := _find_critical_target()
+		if target:
+			_start_critical(target)
+			return
 	if _is_slashing():
 		_attack_queued = true  # input buffer: il prossimo fendente parte appena finisce questo
 	else:
@@ -50,7 +74,7 @@ func primary_pressed() -> void:
 
 func secondary_pressed() -> void:
 	_wants_block = true
-	if not _is_slashing() and not _is_parrying():
+	if not _is_slashing() and not _is_parrying() and not _is_critical():
 		_start_block()
 
 
@@ -64,7 +88,7 @@ func secondary_released() -> void:
 
 func parry_pressed() -> void:
 	var now := Time.get_ticks_msec()
-	if now < _parry_ready_at or _is_slashing():
+	if now < _parry_ready_at or _is_slashing() or _is_critical():
 		return
 	_parry_until = now + int(parry_window * 1000.0)
 	_parry_ready_at = now + int(parry_cooldown * 1000.0)
@@ -72,10 +96,11 @@ func parry_pressed() -> void:
 
 
 func can_switch() -> bool:
-	return not _is_slashing()
+	return not _is_slashing() and not _is_critical()
 
 
 func reset_state() -> void:
+	_critical_target = null
 	is_blocking = false
 	_wants_block = false
 	_attack_queued = false
@@ -118,6 +143,77 @@ func _is_parrying() -> bool:
 	return anim.is_playing() and anim.current_animation == &"parry"
 
 
+func _is_critical() -> bool:
+	return anim.is_playing() and (anim.current_animation == &"riposte" or anim.current_animation == &"backstab")
+
+
+# --- Colpi critici ---------------------------------------------------------
+
+## Il nemico più vicino davanti alla camera su cui si può fare riposte o backstab.
+func _find_critical_target() -> Node3D:
+	if player == null:
+		return null
+	var forward := -player.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var best: Node3D
+	var best_distance := INF
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		var target := enemy as Node3D
+		if target == null or not target.has_method("can_be_riposted"):
+			continue
+		var to_target := target.global_position - player.global_position
+		to_target.y = 0.0
+		var distance := to_target.length()
+		if distance < 0.01 or forward.dot(to_target / distance) < critical_aim:
+			continue
+		var kind := &""
+		if distance <= riposte_range and target.can_be_riposted():
+			kind = &"riposte"
+		elif distance <= backstab_range and target.can_be_backstabbed(player.global_position):
+			kind = &"backstab"
+		if kind != &"" and distance < best_distance:
+			best = target
+			best_distance = distance
+			_critical_kind = kind
+	return best
+
+
+func _start_critical(target: Node3D) -> void:
+	_critical_target = target
+	target.begin_critical(_critical_kind, player)
+	_play_from_start(_critical_kind)
+	# Il player si mette in posizione (davanti o dietro al nemico) e resta fermo per tutta l'animazione.
+	var stand_at: Vector3
+	if _critical_kind == &"backstab":
+		stand_at = target.global_position + target.global_basis.z.normalized() * 1.15
+	else:
+		var away := player.global_position - target.global_position
+		away.y = 0.0
+		stand_at = target.global_position + away.normalized() * 1.3
+	if player.has_method("lock_for"):
+		player.lock_for(anim.current_animation_length, stand_at, target.global_position)
+
+
+# Chiamato dalle animazioni "riposte"/"backstab" quando la lama entra.
+func _on_critical_hit() -> void:
+	if _critical_target == null or not is_instance_valid(_critical_target):
+		return
+	var damage := backstab_damage if _critical_kind == &"backstab" else riposte_damage
+	_critical_target.take_critical_damage(damage, player)
+	critical_hit.emit(_critical_target, _critical_kind)
+	Combat.hitstop(self, 0.12)
+	if player and player.has_method("add_shake"):
+		player.add_shake(0.5)
+
+
+# Chiamato quando la lama viene estratta.
+func _on_critical_release() -> void:
+	if player and player.has_method("add_shake"):
+		player.add_shake(0.3)
+	_critical_target = null
+
+
 func _is_frontal(source_position: Vector3) -> bool:
 	var to_source := source_position - player.global_position
 	var forward := -player.global_basis.z
@@ -137,9 +233,17 @@ func _on_animation_finished(anim_name: StringName) -> void:
 			elif _wants_block:
 				_attack_queued = false
 				_start_block()
-		&"parry":
-			# Dopo il colpo di brocchiero torna in parata se il tasto è ancora premuto.
+		&"riposte", &"backstab":
+			_critical_target = null
 			if _wants_block:
+				_start_block()
+		&"parry":
+			# Dopo il colpo di brocchiero: attacco in coda (es. riposte) oppure torna in parata.
+			if _attack_queued:
+				_attack_queued = false
+				is_blocking = false
+				primary_pressed()
+			elif _wants_block:
 				_start_block()
 			else:
 				is_blocking = false
