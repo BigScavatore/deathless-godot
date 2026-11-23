@@ -41,6 +41,11 @@ func secondary_released() -> void:
 	pass
 
 
+## Parry (F / tasto laterale del mouse / RB).
+func parry_pressed() -> void:
+	pass
+
+
 ## false mentre l'arma non vuole essere interrotta (es. a metà di un fendente).
 func can_switch() -> bool:
 	return true

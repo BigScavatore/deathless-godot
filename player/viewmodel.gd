@@ -4,12 +4,19 @@ extends Node3D
 ##
 ## Le armi sono scene separate (vedi player/weapons/weapon.gd): aggiungile alla lista "weapons".
 ## Il sway sta qui, le animazioni dentro ogni arma: i due movimenti si sommano senza pestarsi i piedi.
-## Comandi: click sinistro / RT = primario, click destro / LT = secondario,
-## rotella o 1-9 = cambio arma, Y (pad) = arma successiva.
+## Comandi: click sinistro / RT = primario, click destro / LT = secondario (parata),
+## F / tasto laterale del mouse / RB = parry, rotella o 1-9 = cambio arma, Y (pad) = arma successiva.
+##
+## Le armi usano viewmodel.gdshader: FOV proprio e sempre disegnate davanti al mondo
+## (non entrano nei muri e non si deformano col FOV del dash).
+
+const VIEWMODEL_SHADER := preload("res://player/viewmodel.gdshader")
 
 ## Scene delle armi disponibili (la radice di ognuna deve estendere Weapon).
 @export var weapons: Array[PackedScene] = []
 @export var start_weapon := 0
+## FOV con cui vengono disegnate le armi (indipendente da quello della camera).
+@export_range(30.0, 120.0) var viewmodel_fov := 75.0
 
 @export_group("Movement sway")
 ## Ampiezza dell'oscillazione mentre si corre.
@@ -102,6 +109,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_current.secondary_pressed()
 	elif event.is_action_released("block"):
 		_current.secondary_released()
+	elif event.is_action_pressed("parry"):
+		_current.parry_pressed()
 
 
 func _process(delta: float) -> void:
@@ -129,7 +138,8 @@ func _process(delta: float) -> void:
 	rotation.x = lerp_angle(rotation.x, target_pitch, t)
 
 
-# Texture pixelate (niente filtro) e niente ombre proiettate dalle armi.
+# Materiale delle armi: viewmodel.gdshader (texture pixelate, FOV proprio, niente compenetrazioni)
+# e nessuna ombra proiettata.
 func _apply_style(weapon: Node) -> void:
 	for child in weapon.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D
@@ -139,6 +149,12 @@ func _apply_style(weapon: Node) -> void:
 		for i in mi.mesh.get_surface_count():
 			var mat := mi.mesh.surface_get_material(i)
 			if mat is BaseMaterial3D:
-				var styled := mat.duplicate() as BaseMaterial3D
-				styled.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+				var base := mat as BaseMaterial3D
+				var styled := ShaderMaterial.new()
+				styled.shader = VIEWMODEL_SHADER
+				styled.set_shader_parameter("albedo_texture", base.albedo_texture)
+				styled.set_shader_parameter("albedo_color", base.albedo_color)
+				styled.set_shader_parameter("roughness", base.roughness)
+				styled.set_shader_parameter("metallic", base.metallic)
+				styled.set_shader_parameter("viewmodel_fov", viewmodel_fov)
 				mi.set_surface_override_material(i, styled)

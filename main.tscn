@@ -3,6 +3,7 @@
 [ext_resource type="PackedScene" path="res://player/player.tscn" id="1_player"]
 [ext_resource type="Script" path="res://enemies/enemy_spawner.gd" id="2_spawner"]
 [ext_resource type="PackedScene" path="res://enemies/knight/knight.tscn" id="3_knight"]
+[ext_resource type="Script" path="res://world/runtime_navigation.gd" id="4_navigation"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_7dm0k"]
 sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
@@ -15,6 +16,12 @@ sky_material = SubResource("ProceduralSkyMaterial_7dm0k")
 background_mode = 2
 sky = SubResource("Sky_ig7tw")
 glow_enabled = true
+
+[sub_resource type="NavigationMesh" id="NavigationMesh_level"]
+geometry_parsed_geometry_type = 1
+agent_height = 2.0
+agent_radius = 0.5
+agent_max_climb = 0.25
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
 albedo_color = Color(0.25, 0.26, 0.3, 1)
@@ -31,17 +38,17 @@ environment = SubResource("Environment_0xm2m")
 transform = Transform3D(-0.8660254, -0.43301278, 0.24999999, 2.7805946e-08, 0.49999994, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 3, 0)
 shadow_enabled = true
 
-[node name="CSGBox3D" type="CSGBox3D" parent="." unique_id=1202035063]
+[node name="CSGBox3D" type="CSGBox3D" parent="." groups=["navigation_source"] unique_id=1202035063]
 transform = Transform3D(3.3, 0, 0, 0, 1, 0, 0, 0, 3.6000001, 0, 0, 0)
 use_collision = true
 
-[node name="CSGBox3D2" type="CSGBox3D" parent="." unique_id=2124444667]
+[node name="CSGBox3D2" type="CSGBox3D" parent="." groups=["navigation_source"] unique_id=2124444667]
 transform = Transform3D(0.27999997, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 6)
 
-[node name="Arena" type="Node3D" parent="."]
+[node name="Arena" type="Node3D" parent="." groups=["navigation_source"]]
 
 [node name="Floor" type="CSGBox3D" parent="Arena"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
@@ -78,3 +85,7 @@ enemy_scene = ExtResource("3_knight")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, -6)
 script = ExtResource("2_spawner")
 enemy_scene = ExtResource("3_knight")
+
+[node name="Navigation" type="NavigationRegion3D" parent="."]
+navigation_mesh = SubResource("NavigationMesh_level")
+script = ExtResource("4_navigation")

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Genera spada e scudo in prima persona (assets/models/viewmodel.glb), stile low-poly "gritty".
+"""Genera claymore e brocchiero in prima persona (assets/models/viewmodel.glb), stile low-poly "gritty".
+Si vedono solo le armi, senza mani né braccia.
 
 Uso:
     python tools/generate_viewmodel.py                       # scrive assets/models/viewmodel.glb
@@ -13,7 +14,9 @@ Convenzioni:
   - il modello è nello spazio della camera: la camera sta nell'origine e guarda verso -Z
     (+X = destra, +Y = su), quindi va messo come figlio di Camera3D;
   - nodi: Viewmodel > SwordArm (> Sword) e ShieldArm (> Shield). I pivot SwordArm/ShieldArm
-    sono vicino alla spalla, così si possono animare (fendente, parata) ruotandoli.
+    sono vicino alla spalla, così si possono animare (fendente, parata) ruotandoli;
+  - le animazioni sono in player/weapons/sword_shield/sword_shield.tscn e usano le posizioni
+    dei pivot: se cambi SWORD_PIVOT/SHIELD_PIVOT, aggiorna anche le pose lì.
 
 Dipendenze: numpy (matplotlib solo per --preview).
 """
@@ -212,27 +215,13 @@ def jitter(tris, amount, seed):
 # ---------------------------------------------------------------------------
 
 # Pivot (vicino alla spalla) e posizione del polso, in spazio camera (+X destra, +Y su, camera guarda -Z)
-SWORD_PIVOT = (0.32, -0.36, -0.04)
-SWORD_WRIST = (-0.02, 0.08, -0.24)         # relativo al pivot (vicino al corpo: claymore tenuta "in guardia")
-SWORD_FOREARM_ROT = (104, 0, 24)
-SWORD_ROT = (-44, 0, 4)                    # inclinazione della spada (lama in avanti e verso il centro)
+SWORD_PIVOT = (0.34, -0.48, -0.04)
+SWORD_WRIST = (0.0, 0.06, -0.34)           # relativo al pivot: dove sta l'impugnatura
+SWORD_ROT = (-38, 0, -10)                  # claymore quasi dritta, punta leggermente in avanti
 
-SHIELD_PIVOT = (-0.36, -0.40, -0.04)
-SHIELD_POS = (-0.06, 0.22, -0.32)          # centro dello scudo, relativo al pivot
-SHIELD_ROT = (6, 40, 14)                   # il retro dello scudo guarda il player, girato verso il centro
-
-
-def forearm(wrist, rot, seed):
-    """Avambraccio corazzato che parte dal polso e va verso la camera (fuori dall'inquadratura)."""
-    def part(tris):
-        return place(tris, pos=wrist, rot=rot)
-
-    return [
-        (part(jitter(cyl(0.050, 0.066, 0.42, seg=6, base=(0, 0.02, 0)), 0.002, seed)), "iron"),
-        (part(jitter(cyl(0.060, 0.060, 0.030, seg=6, base=(0, 0.04, 0)), 0.002, seed + 1)), "iron"),  # anello al polso
-        (part(cyl(0.066, 0.066, 0.025, seg=6, base=(0, 0.20, 0))), "leather"),  # cinghie
-        (part(cyl(0.068, 0.068, 0.025, seg=6, base=(0, 0.31, 0))), "leather"),
-    ]
+SHIELD_PIVOT = (-0.30, -0.36, -0.04)
+SHIELD_POS = (-0.04, 0.13, -0.42)           # centro del brocchiero, relativo al pivot
+SHIELD_ROT = (15, 30, 0)                   # retro (maniglia) verso il player, girato verso il centro
 
 
 def build_sword():
@@ -244,10 +233,6 @@ def build_sword():
         (cyl(0.025, 0.025, 0.02, seg=6, base=(0, -0.16, 0)), "iron"),                       # anello sull'impugnatura
         (box((0.09, 0.034, 0.05), (0, 0.075, 0)), "iron"),                                  # centro guardia
         (box((0.05, 0.05, 0.016), (0, 0.11, 0)), "iron"),                                   # langet
-        # pugno
-        (box((0.09, 0.085, 0.095), (0, -0.005, 0)), "leather"),
-        (box((0.095, 0.022, 0.030), (0, 0.05, -0.045)), "iron"),                            # nocche
-        (box((0.026, 0.05, 0.03), (-0.01, 0.048, 0.05)), "leather"),                        # pollice
     ]
     for side, mat in [(1, "rust"), (-1, "iron")]:
         arm_rot = (0, 0, 24 * side)                                                         # bracci verso la lama
@@ -275,53 +260,47 @@ def build_sword():
     return node("Sword", pos=SWORD_WRIST, rot=SWORD_ROT, parts=parts)
 
 
+def ring(radius, size, z, mat, seg=12, seed=0):
+    """Anello di blocchetti (ogni pezzo è convesso) nel piano XY, centrato in (0, 0, z)."""
+    width = 2 * math.pi * radius / seg * 1.08
+    out = []
+    for i in range(seg):
+        ang = 360.0 * i / seg
+        a = math.radians(ang)
+        piece = place(box((width, size[0], size[1])), pos=(radius * -math.sin(a), radius * math.cos(a), z), rot=(0, 0, ang))
+        out.append((jitter(piece, 0.002, seed + i), mat if i % 4 else "rust"))
+    return out
+
+
+def disc(radius, thickness, z, seg=12):
+    """Disco nel piano XY (spessore lungo Z), centrato in (0, 0, z)."""
+    return place(cyl(radius, radius, thickness, seg=seg, base=(0, -thickness / 2, 0), phase=0), pos=(0, 0, z), rot=(-90, 0, 0))
+
+
 def build_shield():
-    # Centro dello scudo all'origine. La faccia (con umbone e fasce) guarda -Z, cioe' lontano dal player:
-    # dalla camera si vede il RETRO (+Z): assi di legno, traverse, maniglia di ferro e il pugno che la stringe.
-    s = 0.0235  # sporgenza degli elementi sulla faccia
+    # Brocchiero: piccolo scudo rotondo con umbone sporgente, tenuto per la maniglia centrale.
+    # Centro all'origine, la faccia guarda -Z (lontano dal player), la maniglia è sul retro (+Z).
     parts = [
-        # corpo (vernice rossa scrostata sul davanti)
-        (box((0.40, 0.26, 0.035), (0, 0, 0)), "wood_paint"),
-        (taper((0.06, 0.035), (0.40, 0.035), 0.30, base=(0, -0.43, 0)), "wood_paint"),
-        # bordo in ferro
-        (box((0.43, 0.032, 0.05), (0, 0.131, 0)), "iron"),
-        (box((0.03, 0.26, 0.05), (0.205, 0, 0)), "iron"),
-        (box((0.03, 0.26, 0.05), (-0.205, 0, 0)), "rust"),
-        (place(box((0.03, 0.345, 0.05)), pos=(0.1175, -0.28, 0), rot=(0, 0, -29.5)), "iron"),
-        (place(box((0.03, 0.345, 0.05)), pos=(-0.1175, -0.28, 0), rot=(0, 0, 29.5)), "rust"),
-        # davanti: fasce e umbone
-        (box((0.40, 0.045, 0.012), (0, 0.0, -s)), "iron"),
-        (box((0.045, 0.56, 0.012), (0, -0.15, -s)), "iron"),
-        (place(cyl(0.075, 0.030, 0.07, seg=8), pos=(0, 0.0, -0.03), rot=(-90, 0, 0)), "rust"),
-        (place(cyl(0.090, 0.090, 0.012, seg=8), pos=(0, 0.0, -0.025), rot=(-90, 0, 0)), "iron"),
-        # retro: assi di legno grezzo, traverse, maniglia
-        (box((0.39, 0.25, 0.006), (0, 0, 0.0185)), "wood"),
-        (taper((0.058, 0.006), (0.39, 0.006), 0.30, base=(0, -0.43, 0.0185)), "wood"),
-        (box((0.36, 0.05, 0.022), (0, 0.07, 0.034)), "wood"),
-        (box((0.05, 0.40, 0.022), (0, -0.10, 0.034)), "wood"),
-        (box((0.15, 0.026, 0.026), (0, -0.02, 0.066)), "iron"),
-        (box((0.03, 0.07, 0.012), (0.08, -0.02, 0.050)), "iron"),
-        (box((0.03, 0.07, 0.012), (-0.08, -0.02, 0.050)), "iron"),
+        (disc(0.165, 0.028, 0.0), "wood_paint"),                                   # corpo (vernice scrostata)
+        (disc(0.150, 0.006, 0.017), "wood"),                                       # retro in legno grezzo
+        (disc(0.095, 0.012, -0.018, seg=10), "iron"),                              # piastra dell'umbone
+        (place(cyl(0.070, 0.026, 0.065, seg=10), pos=(0, 0, -0.02), rot=(-90, 0, 0)), "rust"),   # umbone
+        (place(cyl(0.026, 0.0, 0.025, seg=6), pos=(0, 0, -0.084), rot=(-90, 0, 0)), "iron"),     # punta dell'umbone
+        (box((0.11, 0.026, 0.026), (0, 0, 0.052)), "leather"),                     # maniglia
+        (box((0.024, 0.03, 0.03), (0.055, 0, 0.034)), "iron"),                     # attacchi della maniglia
+        (box((0.024, 0.03, 0.03), (-0.055, 0, 0.034)), "iron"),
     ]
-    for rx, ry in [(0.17, 0.0), (-0.17, 0.0), (0.0, 0.10), (0.0, -0.25)]:      # borchie davanti
-        parts.append((box((0.022, 0.022, 0.014), (rx, ry, -0.032)), "brass"))
-    parts = [(jitter(t, 0.003, 100 + i), m) for i, (t, m) in enumerate(parts)]
-    # pugno che stringe la maniglia + avambraccio (si muovono insieme allo scudo)
-    parts += [
-        (box((0.105, 0.078, 0.05), (0, -0.02, 0.098)), "leather"),              # dita
-        (box((0.105, 0.02, 0.022), (0, 0.02, 0.118)), "iron"),                  # nocche
-        (box((0.085, 0.07, 0.06), (0, -0.05, 0.14)), "leather"),                # palmo
-    ]
-    parts += forearm((0, -0.05, 0.15), (104, 0, 0), 60)
+    parts += ring(0.163, (0.026, 0.042), 0.0, "iron", seed=200)                    # bordo in ferro
+    for i in range(8):                                                              # borchie
+        a = math.radians(22.5 + 45 * i)
+        parts.append((box((0.02, 0.02, 0.012), (0.125 * math.cos(a), 0.125 * math.sin(a), -0.019)), "brass"))
+    parts = [(jitter(t, 0.0015, 100 + i), m) for i, (t, m) in enumerate(parts)]
     return node("Shield", pos=SHIELD_POS, rot=SHIELD_ROT, parts=parts)
 
 
 def build_viewmodel():
-    sword_arm = node(
-        "SwordArm", pos=SWORD_PIVOT,
-        parts=forearm(SWORD_WRIST, SWORD_FOREARM_ROT, 50),
-        children=[build_sword()],
-    )
+    # Niente mani né avambracci: si vedono solo le armi (i pivot restano alla spalla per le animazioni).
+    sword_arm = node("SwordArm", pos=SWORD_PIVOT, children=[build_sword()])
     shield_arm = node("ShieldArm", pos=SHIELD_PIVOT, children=[build_shield()])
     return node("Viewmodel", children=[sword_arm, shield_arm])
 
