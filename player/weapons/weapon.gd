@@ -14,6 +14,8 @@ extends Node3D
 
 ## Nome mostrato nell'interfaccia (futuro HUD / ruota armi).
 @export var display_name := "Arma"
+## Effetto sonoro quando si estrae l'arma (vedi audio/sfx.gd); vuoto = nessuno.
+@export var equip_sound := &""
 
 ## Il player che impugna l'arma (lo imposta il Viewmodel).
 var player: CharacterBody3D
@@ -66,6 +68,8 @@ func defend(_source_position: Vector3) -> Combat.HitResult:
 
 func equip() -> void:
 	visible = true
+	if equip_sound != &"":
+		Sfx.play(self, equip_sound, -6.0)
 	if anim and anim.has_animation(&"equip"):
 		anim.play(&"equip")
 		await anim.animation_finished

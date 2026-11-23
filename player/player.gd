@@ -108,6 +108,9 @@ var _slamming := false
 var _slam_jump_time := 0.0
 var _locked_time := 0.0
 
+var _was_on_floor := true
+var _slide_audio: AudioStreamPlayer
+
 
 func _ready() -> void:
 	_apply_size()
@@ -119,6 +122,10 @@ func _ready() -> void:
 	add_to_group("player")
 	_hud.set_health(health, max_health)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_slide_audio = AudioStreamPlayer.new()
+	_slide_audio.stream = Sfx.looping(&"slide_loop")
+	_slide_audio.volume_db = -7.0
+	add_child(_slide_audio)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -174,9 +181,14 @@ func _physics_process(delta: float) -> void:
 	else:
 		_process_movement(delta)
 
+	var fall_speed := velocity.y
 	move_and_slide()
 	if _slamming and is_on_floor():
 		_land_slam()
+	elif is_on_floor() and not _was_on_floor and fall_speed < -7.0:
+		Sfx.play(self, &"land", -10.0)
+	_was_on_floor = is_on_floor()
+	_update_slide_audio()
 	_update_wall_contact()
 	_update_crouch(delta)
 	_update_fov(delta)
@@ -207,6 +219,7 @@ func lock_for(duration: float, stand_at: Vector3, look_at_point: Vector3) -> voi
 
 func _process_locked(delta: float) -> void:
 	_locked_time -= delta
+	_update_slide_audio()
 	velocity.x = 0.0
 	velocity.z = 0.0
 	if not is_on_floor():
@@ -274,6 +287,7 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 		_:
 			add_shake(0.7)
 			_hud.flash_damage(0.45)
+			Sfx.play(self, &"player_hurt", 0.0)
 
 	health = maxf(health - amount, 0.0)
 	_hud.set_health(health, max_health)
@@ -291,6 +305,8 @@ func add_shake(amount: float) -> void:
 func _die() -> void:
 	_dead = true
 	died.emit()
+	_slide_audio.stop()
+	Sfx.play(self, &"body_fall", -2.0)
 	_viewmodel.visible = false
 	# Camera che cade a terra, poi si ricarica il livello.
 	var tween := create_tween()
@@ -322,6 +338,7 @@ func _process_movement(delta: float) -> void:
 	if _jump_buffer > 0.0:
 		if _coyote > 0.0:
 			velocity.y = slam_jump_velocity if _slam_jump_time > 0.0 else jump_velocity
+			Sfx.play(self, &"jump", -10.0 if _slam_jump_time <= 0.0 else -4.0)
 			_slam_jump_time = 0.0
 			_jump_buffer = 0.0
 			_coyote = 0.0
@@ -350,6 +367,15 @@ func _wish_direction() -> Vector3:
 
 # --- Scivolata -------------------------------------------------------------
 
+func _update_slide_audio() -> void:
+	var should_play := _sliding and is_on_floor() and _locked_time <= 0.0
+	if should_play and not _slide_audio.playing:
+		_slide_audio.pitch_scale = randf_range(0.92, 1.05)
+		_slide_audio.play()
+	elif not should_play and _slide_audio.playing:
+		_slide_audio.stop()
+
+
 func _start_slide() -> void:
 	var dir := _wish_direction()
 	if dir == Vector3.ZERO:
@@ -373,6 +399,7 @@ func _process_slide(delta: float) -> void:
 		if _jump_buffer > 0.0:
 			# Salto lungo: si esce dalla scivolata tenendo lo slancio.
 			velocity.y = slam_jump_velocity if _slam_jump_time > 0.0 else jump_velocity
+			Sfx.play(self, &"jump", -8.0)
 			_slam_jump_time = 0.0
 			_jump_buffer = 0.0
 			_coyote = 0.0
@@ -386,6 +413,7 @@ func _process_slide(delta: float) -> void:
 func _start_slam() -> void:
 	_slamming = true
 	_sliding = false
+	Sfx.play(self, &"slam_dive", -4.0)
 
 
 func _process_slam() -> void:
@@ -397,6 +425,7 @@ func _land_slam() -> void:
 	_slam_jump_time = slam_jump_window
 	velocity = Vector3.ZERO
 	add_shake(0.6)
+	Sfx.play(self, &"slam_impact", 3.0, 0.06)
 	for enemy in get_tree().get_nodes_in_group("enemy"):
 		var target := enemy as Node3D
 		if target == null or not target.has_method("take_damage"):
@@ -420,6 +449,7 @@ func _start_dash() -> void:
 	_dash_dir = dir.normalized()
 	_dash_time_left = dash_duration
 	_dash_charges -= 1.0
+	Sfx.play(self, &"dash", -6.0)
 
 
 func _process_dash(delta: float) -> void:
@@ -442,6 +472,7 @@ func _wall_jump() -> void:
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 	velocity.y = wall_jump_up
+	Sfx.play(self, &"jump", -8.0)
 
 	_wall_jumps_left -= 1
 	_wall_time = 0.0

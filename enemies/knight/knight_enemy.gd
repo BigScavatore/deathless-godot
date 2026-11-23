@@ -5,6 +5,8 @@ extends CharacterBody3D
 ## L'attacco ha un segnale visivo (lampo giallo) poco prima del colpo: se in quel momento
 ## premi "parata" fai parry e il cavaliere resta stordito; i colpi durante lo stordimento
 ## fanno danno doppio. Mentre attacca non viene interrotto dai colpi (solo il parry lo ferma).
+## Si gira a velocità limitata; dopo ogni attacco ha una pausa di recupero in cui si gira piano,
+## e se il colpo viene parato con lo scudo rimbalza e resta scoperto: è il momento del backstab.
 ## Colpi critici (stile Dark Souls): da stordito può subire una riposte, e se lo prendi alle
 ## spalle un backstab. Durante il critico è invulnerabile; se sopravvive si rialza.
 ## Animazioni nell'AnimationPlayer: idle, walk, attack, hurt, stagger, death,
@@ -13,12 +15,13 @@ extends CharacterBody3D
 
 signal died
 
-enum State { IDLE, CHASE, ATTACK, HURT, STAGGER, CRITICAL, DEAD }
+enum State { IDLE, CHASE, ATTACK, RECOVER, RECOIL, HURT, STAGGER, CRITICAL, DEAD }
 
 @export_group("Stats")
 @export var max_health := 100.0
 @export var move_speed := 3.2
-@export var turn_speed := 6.0
+## Velocità massima di rotazione (gradi al secondo).
+@export var turn_rate_deg := 140.0
 @export var detect_range := 30.0
 
 @export_group("Attack")
@@ -32,6 +35,9 @@ enum State { IDLE, CHASE, ATTACK, HURT, STAGGER, CRITICAL, DEAD }
 @export var attack_cooldown := 0.8
 ## Fino a che punto dell'animazione "attack" continua a girarsi verso il player (poi il colpo è deciso).
 @export var attack_tracking_time := 0.45
+## Dopo l'attacco resta fermo per questo tempo e si gira lentamente.
+@export var attack_recovery := 0.7
+@export var recovery_turn_rate_deg := 35.0
 
 @export_group("Reactions")
 ## Moltiplicatore del danno ricevuto mentre è stordito (riposte).
@@ -54,6 +60,7 @@ var _repath_time := 0.0
 var _critical_kind := &""
 var _critical_attacker: Node3D
 var _critical_time := 0.0
+var _recover_time := 0.0
 
 @onready var anim: AnimationPlayer = $AnimationPlayer
 @onready var _collision: CollisionShape3D = $CollisionShape3D
@@ -98,11 +105,17 @@ func _physics_process(delta: float) -> void:
 		State.ATTACK:
 			if anim.current_animation_position < attack_tracking_time:
 				_face_player(delta)
+		State.RECOVER:
+			_recover_time -= delta
+			_face_player(delta, recovery_turn_rate_deg)
+			_play_loop(&"idle")
+			if _recover_time <= 0.0:
+				state = State.CHASE
 		State.CRITICAL:
 			# Nella riposte si gira verso chi lo trafigge (nel backstab resta di spalle).
 			_critical_time += delta
 			if _critical_kind == &"riposte" and _critical_time < 0.2 and _critical_attacker:
-				_face_direction(_critical_attacker.global_position - global_position, delta * 3.0)
+				_face_direction(_critical_attacker.global_position - global_position, delta, 500.0)
 
 	# La velocità orizzontale va verso quella desiderata (così il knockback si smorza da solo).
 	var horizontal := Vector2(velocity.x, velocity.z).move_toward(Vector2(desired.x, desired.z), 20.0 * delta)
@@ -120,12 +133,13 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 		amount *= stagger_damage_mult
 	health -= amount
 	_flash(Color(1.0, 0.1, 0.05))
+	Sfx.play_at(self, &"hit_armor", global_position + Vector3.UP * 1.2, 2.0)
 	if source:
 		_push_away_from(source.global_position, knockback)
 
 	if health <= 0.0:
 		_die()
-	elif state != State.ATTACK and state != State.STAGGER:
+	elif state != State.ATTACK and state != State.STAGGER and state != State.RECOIL:
 		state = State.HURT
 		_play_from_start(&"hurt")
 	return Combat.HitResult.HIT
@@ -198,6 +212,22 @@ func _start_attack() -> void:
 # Chiamato dall'animazione "attack" poco prima del colpo: è il momento di fare parry.
 func _telegraph() -> void:
 	_flash(Color(1.0, 0.9, 0.4), 0.3)
+	Sfx.play_at(self, &"telegraph", global_position + Vector3.UP * 1.8, 0.0, 0.04)
+
+
+# Chiamato dall'animazione "attack" quando la spada scende.
+func _swing_sound() -> void:
+	Sfx.play_at(self, &"swing_heavy", global_position + Vector3.UP * 1.5, 0.0)
+
+
+# Chiamato dall'animazione "walk" a ogni passo.
+func _footstep() -> void:
+	Sfx.play_at(self, &"step_armor", global_position, -8.0, 0.12)
+
+
+# Chiamato dalle animazioni di caduta quando il corpo tocca terra.
+func _body_fall() -> void:
+	Sfx.play_at(self, &"body_fall", global_position + Vector3.UP * 0.3, 2.0)
 
 
 # Chiamato dall'animazione "attack" nel frame d'impatto.
@@ -215,15 +245,24 @@ func _attack_hit() -> void:
 		var result: Combat.HitResult = _player.take_damage(attack_damage, self)
 		if result == Combat.HitResult.PARRIED:
 			_stagger()
+		elif result == Combat.HitResult.BLOCKED:
+			_recoil()
+
+
+## Il colpo è rimbalzato sullo scudo: resta sbilanciato e non si gira.
+func _recoil() -> void:
+	state = State.RECOIL
+	_play_from_start(&"recoil")
 
 
 func _on_animation_finished(anim_name: StringName) -> void:
 	if state == State.DEAD:
 		return
 	match anim_name:
-		&"attack":
+		&"attack", &"recoil":
 			_cooldown = attack_cooldown
-			state = State.CHASE
+			_recover_time = attack_recovery
+			state = State.RECOVER
 		&"hurt", &"stagger", &"get_up":
 			state = State.CHASE
 		&"riposted", &"backstabbed":
@@ -242,16 +281,18 @@ func _distance_to_player() -> float:
 	return to_player.length()
 
 
-func _face_player(delta: float) -> void:
-	_face_direction(_player.global_position - global_position, delta)
+func _face_player(delta: float, rate_deg := -1.0) -> void:
+	_face_direction(_player.global_position - global_position, delta, rate_deg)
 
 
-func _face_direction(direction: Vector3, delta: float) -> void:
+## Si gira verso "direction" a velocità limitata (rate_deg < 0 = turn_rate_deg).
+func _face_direction(direction: Vector3, delta: float, rate_deg := -1.0) -> void:
 	direction.y = 0.0
 	if direction.length_squared() < 0.0001:
 		return
 	var target_yaw := atan2(-direction.x, -direction.z)  # il modello guarda verso -Z
-	rotation.y = lerp_angle(rotation.y, target_yaw, 1.0 - exp(-turn_speed * delta))
+	var max_step := deg_to_rad(turn_rate_deg if rate_deg < 0.0 else rate_deg) * delta
+	rotation.y += clampf(wrapf(target_yaw - rotation.y, -PI, PI), -max_step, max_step)
 
 
 ## Direzione (orizzontale, normalizzata) per avvicinarsi al player seguendo la navmesh.

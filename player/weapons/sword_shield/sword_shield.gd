@@ -93,6 +93,7 @@ func parry_pressed() -> void:
 	_parry_until = now + int(parry_window * 1000.0)
 	_parry_ready_at = now + int(parry_cooldown * 1000.0)
 	_play_from_start(&"parry")
+	Sfx.play(self, &"parry_whiff", -8.0)
 
 
 func can_switch() -> bool:
@@ -114,15 +115,18 @@ func defend(source_position: Vector3) -> Combat.HitResult:
 		_parry_until = 0
 		_parry_ready_at = 0  # parry riuscito: puoi subito pararne un altro
 		parried.emit()
+		Sfx.play(self, &"parry", 2.0, 0.05)
 		return Combat.HitResult.PARRIED
 	if is_blocking:
 		_play_from_start(&"block_hit")
+		Sfx.play(self, &"block", 0.0)
 		return Combat.HitResult.BLOCKED
 	return Combat.HitResult.HIT
 
 
 func _slash() -> void:
 	_play_from_start(&"slash")
+	Sfx.play(self, &"swing", -3.0, 0.1)
 
 
 func _start_block() -> void:
@@ -201,6 +205,7 @@ func _on_critical_hit() -> void:
 		return
 	var damage := backstab_damage if _critical_kind == &"backstab" else riposte_damage
 	_critical_target.take_critical_damage(damage, player)
+	Sfx.play(self, &"stab", 3.0, 0.05)
 	critical_hit.emit(_critical_target, _critical_kind)
 	Combat.hitstop(self, 0.12)
 	if player and player.has_method("add_shake"):
@@ -209,6 +214,7 @@ func _on_critical_hit() -> void:
 
 # Chiamato quando la lama viene estratta.
 func _on_critical_release() -> void:
+	Sfx.play(self, &"stab_out", 0.0)
 	if player and player.has_method("add_shake"):
 		player.add_shake(0.3)
 	_critical_target = null

@@ -535,6 +535,7 @@ _data = {
 [node name="SwordShield" type="Node3D"]
 script = ExtResource("1_script")
 display_name = "Claymore e brocchiero"
+equip_sound = &"equip"
 
 [node name="Model" parent="." instance=ExtResource("2_model")]
 
