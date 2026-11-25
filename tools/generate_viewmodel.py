@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Genera le armi in prima persona, stile low-poly "gritty". Si vedono solo le armi, senza mani né braccia.
-  - assets/models/viewmodel.glb   claymore e brocchiero
-  - assets/models/staff.glb       bastone magico (cristallo luminoso in un nodo a parte, "Crystal")
+Ogni arma è un file a sé, modellato per la sua mano "naturale"; nel gioco, se la metti nell'altra
+mano, viene specchiata (vedi player/viewmodel.gd):
+  - assets/models/sword.glb    claymore         (mano destra)  SwordModel > SwordArm > Sword
+  - assets/models/shield.glb   brocchiero       (mano sinistra) ShieldModel > ShieldArm > Shield
+  - assets/models/staff.glb    bastone magico   (mano destra)  StaffModel > StaffArm > Staff > Crystal
 
 Uso:
-    python tools/generate_viewmodel.py                       # scrive viewmodel.glb e staff.glb
-    python tools/generate_viewmodel.py --preview anteprima.png   # + anteprima dal punto di vista del player
+    python tools/generate_viewmodel.py                           # scrive i tre .glb
+    python tools/generate_viewmodel.py --preview anteprima.png   # + anteprime dal punto di vista del player
 
 Stile (ispirato a DUSK): pochi poligoni, texture piccole e pixelate (atlas 3x3 da 256 px,
 palette posterizzata, ruggine, graffi, vernice scrostata), campionate senza filtro (nearest).
@@ -14,10 +17,10 @@ Le texture sono generate qui, in modo deterministico: modifica le funzioni tile_
 Convenzioni:
   - il modello è nello spazio della camera: la camera sta nell'origine e guarda verso -Z
     (+X = destra, +Y = su), quindi va messo come figlio di Camera3D;
-  - nodi: Viewmodel > SwordArm (> Sword) e ShieldArm (> Shield). I pivot SwordArm/ShieldArm
-    sono vicino alla spalla, così si possono animare (fendente, parata) ruotandoli;
-  - le animazioni sono in player/weapons/sword_shield/sword_shield.tscn e usano le posizioni
-    dei pivot: se cambi SWORD_PIVOT/SHIELD_PIVOT, aggiorna anche le pose lì.
+  - i pivot (SwordArm, ShieldArm, StaffArm) sono vicino alla spalla, così si possono animare
+    (fendente, parata, lancio) ruotandoli;
+  - le animazioni sono nelle scene delle armi (player/weapons/<arma>/<arma>.tscn) e usano le
+    posizioni dei pivot: se cambi SWORD_PIVOT/SHIELD_PIVOT/STAFF_PIVOT, aggiorna anche le pose lì.
 
 Dipendenze: numpy (matplotlib solo per --preview).
 """
@@ -426,11 +429,20 @@ def build_staff_viewmodel():
     return node("StaffModel", children=[node("StaffArm", pos=STAFF_PIVOT, children=[build_staff()])])
 
 
-def build_viewmodel():
-    # Niente mani né avambracci: si vedono solo le armi (i pivot restano alla spalla per le animazioni).
-    sword_arm = node("SwordArm", pos=SWORD_PIVOT, children=[build_sword()])
-    shield_arm = node("ShieldArm", pos=SHIELD_PIVOT, children=[build_shield()])
-    return node("Viewmodel", children=[sword_arm, shield_arm])
+# Niente mani né avambracci: si vedono solo le armi (i pivot restano alla spalla per le animazioni).
+def build_sword_viewmodel():
+    return node("SwordModel", children=[node("SwordArm", pos=SWORD_PIVOT, children=[build_sword()])])
+
+
+def build_shield_viewmodel():
+    return node("ShieldModel", children=[node("ShieldArm", pos=SHIELD_PIVOT, children=[build_shield()])])
+
+
+MODELS = {  # nome del file: funzione che costruisce il modello
+    "sword": build_sword_viewmodel,
+    "shield": build_shield_viewmodel,
+    "staff": build_staff_viewmodel,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -623,27 +635,21 @@ def render_preview(root, atlas, path):
 def main():
     repo_root = Path(__file__).resolve().parent.parent
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", default=str(repo_root / "assets" / "models" / "viewmodel.glb"))
-    ap.add_argument("--staff-out", default=str(repo_root / "assets" / "models" / "staff.glb"))
-    ap.add_argument("--preview", help="percorso PNG per l'anteprima dal punto di vista del player")
+    ap.add_argument("--out-dir", default=str(repo_root / "assets" / "models"))
+    ap.add_argument("--preview", help="percorso PNG per le anteprime (una per arma: <nome>_<arma>.png)")
     args = ap.parse_args()
 
-    root = build_viewmodel()
     atlas = build_atlas()
-    gltf = write_glb(root, args.out, atlas)
-    n_tris = sum(len(t) for t, _ in world_geometry(root))
-    print(f"Scritto {args.out}")
-    print(f"  triangoli: {n_tris} | nodi: {len(gltf['nodes'])} | atlas: {ATLAS_W}x{ATLAS_H}")
-    staff = build_staff_viewmodel()
-    gltf = write_glb(staff, args.staff_out, atlas)
-    n_tris = sum(len(t) for t, _ in world_geometry(staff))
-    print(f"Scritto {args.staff_out}")
-    print(f"  triangoli: {n_tris} | nodi: {len(gltf['nodes'])}")
-    if args.preview:
-        render_preview(root, atlas, args.preview)
-        staff_preview = str(Path(args.preview).with_name(Path(args.preview).stem + "_staff.png"))
-        render_preview(staff, atlas, staff_preview)
-        print(f"Anteprima: {args.preview}, {staff_preview}")
+    for name, build in MODELS.items():
+        root = build()
+        path = Path(args.out_dir) / f"{name}.glb"
+        gltf = write_glb(root, path, atlas)
+        n_tris = sum(len(t) for t, _ in world_geometry(root))
+        print(f"Scritto {path}  (triangoli: {n_tris} | nodi: {len(gltf['nodes'])} | atlas: {ATLAS_W}x{ATLAS_H})")
+        if args.preview:
+            out = Path(args.preview).with_name(f"{Path(args.preview).stem}_{name}.png")
+            render_preview(root, atlas, out)
+            print(f"  anteprima: {out}")
 
 
 if __name__ == "__main__":

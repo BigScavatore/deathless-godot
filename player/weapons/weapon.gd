@@ -1,49 +1,58 @@
 class_name Weapon
 extends Node3D
-## Classe base per tutto ciò che il player può impugnare (spada e scudo, armi da fuoco, magie...).
+## Classe base per tutto ciò che il player può tenere in una mano (spada, scudo, bastone...).
+##
+## Come in Dark Souls ogni mano ha la sua arma e qualsiasi arma va in qualsiasi mano:
+## il Viewmodel (player/viewmodel.gd) istanzia le armi di ogni mano, inoltra l'input e,
+## se un'arma sta nella mano opposta a quella per cui è modellata ("native_hand"), la specchia
+## (scala X = -1): modello e animazioni restano gli stessi, solo riflessi.
 ##
 ## Ogni arma è una scena a sé: la radice ha uno script che estende Weapon, dentro ci sono il
 ## modello e un AnimationPlayer (chiamato "AnimationPlayer") con le sue animazioni.
-## Il Viewmodel (player/viewmodel.gd) istanzia le armi, le cambia e inoltra l'input:
-## l'arma non legge mai Input direttamente, così la stessa arma funziona anche per altri usi.
+## L'arma non legge mai Input direttamente: riceve le chiamate qui sotto dal Viewmodel.
 ##
 ## Animazioni riconosciute dalla base (tutte opzionali):
 ##   "RESET"    posa di riposo (serve all'editor)
 ##   "equip"    estrazione; se manca "unequip", viene riprodotta al contrario per riporre l'arma
 ##   "unequip"  riposizione
 
+enum Hand { RIGHT, LEFT }
+
 ## Nome mostrato nell'interfaccia.
 @export var display_name := "Arma"
 ## Effetto sonoro quando si estrae l'arma (vedi audio/sfx.gd); vuoto = nessuno.
 @export var equip_sound := &""
+## Mano per cui è modellata e animata. Nell'altra mano viene specchiata.
+@export var native_hand := Hand.RIGHT
 
 ## Il player che impugna l'arma (lo imposta il Viewmodel).
 var player: CharacterBody3D
+## In che mano è adesso (lo imposta il Viewmodel).
+var hand := Hand.RIGHT
+
+var _lowered := false
+var _lower_tween: Tween
 
 @onready var anim: AnimationPlayer = get_node_or_null("AnimationPlayer")
 
 
 # --- Da sovrascrivere nelle armi -------------------------------------------
 
-## Attacco principale (click sinistro / grilletto destro).
-func primary_pressed() -> void:
+## Il tasto della mano in cui si trova l'arma è stato premuto / rilasciato
+## (mano destra = click sinistro / RT, mano sinistra = click destro / LT).
+func use_pressed() -> void:
 	pass
 
 
-func primary_released() -> void:
+func use_released() -> void:
 	pass
 
 
-## Azione secondaria (click destro / grilletto sinistro): parata, mira, colpo caricato...
-func secondary_pressed() -> void:
-	pass
+## true se l'arma sa fare parry (F / tasto laterale / RB va a lei).
+func can_parry() -> bool:
+	return false
 
 
-func secondary_released() -> void:
-	pass
-
-
-## Parry (F / tasto laterale del mouse / RB).
 func parry_pressed() -> void:
 	pass
 
@@ -51,6 +60,17 @@ func parry_pressed() -> void:
 ## Modalità successiva (R / X sul pad): es. cambia incantesimo sul bastone.
 func next_mode_pressed() -> void:
 	pass
+
+
+## true mentre l'arma fa un'azione ampia (fendente, colpo critico): l'altra mano si abbassa
+## per lasciarle spazio (e uno scudo smette di parare).
+func wants_other_hand_lowered() -> bool:
+	return false
+
+
+## true durante un'azione che blocca tutto il resto (es. riposte): l'altra mano non riceve input.
+func is_exclusive() -> bool:
+	return false
 
 
 ## Informazioni extra per la HUD (vedi player/hud.gd). Chiavi riconosciute:
@@ -80,6 +100,33 @@ func defend(_source_position: Vector3) -> Combat.HitResult:
 	return Combat.HitResult.HIT
 
 
+## L'altra mano chiede spazio: l'arma si abbassa (o torna su). Le armi possono reagire
+## sovrascrivendo _on_lowered() (es. lo scudo smette di parare).
+func set_lowered(lowered: bool) -> void:
+	if lowered == _lowered:
+		return
+	_lowered = lowered
+	if _lower_tween:
+		_lower_tween.kill()
+	_lower_tween = create_tween().set_parallel().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_lower_tween.tween_property(self, "position", Vector3(0, -0.22, 0.06) if lowered else Vector3.ZERO, 0.12)
+	_lower_tween.tween_property(self, "rotation", Vector3(0.35, 0, 0) if lowered else Vector3.ZERO, 0.12)
+	_on_lowered(lowered)
+
+
+func is_lowered() -> bool:
+	return _lowered
+
+
+func _on_lowered(_lowered_now: bool) -> void:
+	pass
+
+
+## +1 nella mano destra, -1 nella sinistra: utile per effetti che partono "dal lato dell'arma".
+func side() -> float:
+	return 1.0 if hand == Hand.RIGHT else -1.0
+
+
 # --- Equip / unequip (coroutine: usale con await) --------------------------
 
 func equip() -> void:
@@ -93,6 +140,7 @@ func equip() -> void:
 
 func unequip() -> void:
 	reset_state()
+	set_lowered(false)
 	if anim and anim.has_animation(&"unequip"):
 		anim.play(&"unequip")
 		await anim.animation_finished
@@ -100,3 +148,8 @@ func unequip() -> void:
 		anim.play_backwards(&"equip")
 		await anim.animation_finished
 	visible = false
+
+
+func _play_from_start(anim_name: StringName) -> void:
+	anim.play(anim_name)
+	anim.seek(0.0, true)

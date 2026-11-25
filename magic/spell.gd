@@ -19,6 +19,10 @@ extends Resource
 @export var cooldown := 0.3
 ## Colore della magia: cristallo del bastone, HUD, proiettili.
 @export var color := Color(0.6, 0.45, 1.0)
+## Suono del lancio (vedi audio/sfx.gd); vuoto = nessuno.
+@export var cast_sound := &""
+## Scossone della camera al lancio (0..1).
+@export var cast_shake := 0.18
 @export var icon := PackedStringArray()
 
 

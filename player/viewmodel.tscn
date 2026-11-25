@@ -1,9 +1,11 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://player/viewmodel.gd" id="1_viewmodel"]
-[ext_resource type="PackedScene" path="res://player/weapons/sword_shield/sword_shield.tscn" id="2_sword_shield"]
-[ext_resource type="PackedScene" path="res://player/weapons/staff/staff.tscn" id="3_staff"]
+[ext_resource type="PackedScene" path="res://player/weapons/sword/sword.tscn" id="2_sword"]
+[ext_resource type="PackedScene" path="res://player/weapons/shield/shield.tscn" id="3_shield"]
+[ext_resource type="PackedScene" path="res://player/weapons/staff/staff.tscn" id="4_staff"]
 
 [node name="Viewmodel" type="Node3D"]
 script = ExtResource("1_viewmodel")
-weapons = Array[PackedScene]([ExtResource("2_sword_shield"), ExtResource("3_staff")])
+right_hand = Array[PackedScene]([ExtResource("2_sword"), ExtResource("4_staff")])
+left_hand = Array[PackedScene]([ExtResource("3_shield"), ExtResource("4_staff")])

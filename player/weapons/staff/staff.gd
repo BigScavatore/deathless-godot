@@ -1,19 +1,23 @@
 extends Weapon
-## Bastone magico: lancia l'incantesimo selezionato.
-##   click sinistro (tenuto)  = lancia; tenendo premuto continua al ritmo del "cooldown" dell'incantesimo
-##   R / X (pad)              = incantesimo successivo (tra quelli sbloccati)
+## Bastone magico: lancia l'incantesimo selezionato. Va in entrambe le mani (nella sinistra è specchiato
+## e l'incantesimo parte dal lato sinistro).
+##   tasto della mano (tenuto) = lancia; tenendo premuto continua al ritmo del "cooldown" dell'incantesimo.
+##                               Il lancio ha una breve carica: l'incantesimo parte nel frame "_release_cast"
+##                               dell'animazione "cast", quando il bastone scatta in avanti.
+##   R / X (pad)               = incantesimo successivo (tra quelli sbloccati)
 ## Ogni incantesimo costa mana (player.use_mana); senza mana il cristallo "sfrigola" e non succede niente.
 ##
-## Incantesimi: la lista "spells" contiene tutti quelli che il bastone conosce, "unlocked" gli id di
-## quelli già disponibili. Per sbloccarne uno durante il gioco (es. raccogliendo un tomo):
-##     staff.unlock_spell(&"id_incantesimo")
+## Incantesimi: la lista "spells" contiene tutti quelli che il bastone sa lanciare; quali sono
+## disponibili lo decide il player (player.known_spells), così valgono per ogni bastone in ogni mano.
+## Per impararne uno durante il gioco (es. raccogliendo un tomo):
+##     player.learn_spell(spell)          oppure, dal bastone, per id:   staff.unlock_spell(&"id")
 ## Le pose sono nell'AnimationPlayer della scena: "equip", "cast", "fizzle", "switch".
 
 signal spell_changed(spell: Spell)
-signal spell_unlocked(spell: Spell)
 
-## Tutti gli incantesimi che il bastone conosce (anche quelli ancora bloccati).
+## Tutti gli incantesimi che il bastone sa lanciare (anche quelli che il player non conosce ancora).
 @export var spells: Array[Spell] = [MagicShardSpell.new()]
+## Usata solo se il bastone non è in mano al player (che ha la sua lista, known_spells).
 @export var unlocked: Array[StringName] = [&"magic_shard"]
 ## Energia della luce del cristallo a riposo e nel lampo del lancio.
 @export var glow_idle := 1.2
@@ -24,6 +28,7 @@ var _holding := false
 var _ready_at := 0
 var _crystal_material: ShaderMaterial
 var _glow_tween: Tween
+var _casting_spell: Spell
 
 @onready var _light: OmniLight3D = get_node_or_null("Model/StaffModel/StaffArm/Staff/Crystal/Glow")
 
@@ -39,12 +44,12 @@ func _process(_delta: float) -> void:
 
 # --- Input -----------------------------------------------------------------
 
-func primary_pressed() -> void:
+func use_pressed() -> void:
 	_holding = true
 	_try_cast()
 
 
-func primary_released() -> void:
+func use_released() -> void:
 	_holding = false
 
 
@@ -62,11 +67,16 @@ func next_mode_pressed() -> void:
 
 
 func can_switch() -> bool:
-	return not (anim.is_playing() and anim.current_animation == &"cast")
+	return not _is_casting()
+
+
+func _is_casting() -> bool:
+	return anim.is_playing() and anim.current_animation == &"cast"
 
 
 func reset_state() -> void:
 	_holding = false
+	_casting_spell = null
 
 
 func equip() -> void:
@@ -85,12 +95,12 @@ func current_spell() -> Spell:
 
 
 func unlock_spell(id: StringName) -> void:
-	if unlocked.has(id):
-		return
-	unlocked.append(id)
 	for spell in spells:
 		if spell.id == id:
-			spell_unlocked.emit(spell)
+			if player and player.has_method("learn_spell"):
+				player.learn_spell(spell)
+			elif not unlocked.has(id):
+				unlocked.append(id)
 
 
 func hud_info() -> Dictionary:
@@ -104,8 +114,11 @@ func hud_info() -> Dictionary:
 
 func _available() -> Array[Spell]:
 	var list: Array[Spell] = []
+	var learned := player != null and player.has_method("knows_spell")
 	for spell in spells:
-		if spell and unlocked.has(spell.id):
+		if spell == null:
+			continue
+		if (learned and player.knows_spell(spell.id)) or (not learned and unlocked.has(spell.id)):
 			list.append(spell)
 	return list
 
@@ -113,7 +126,7 @@ func _available() -> Array[Spell]:
 func _try_cast() -> void:
 	var spell := current_spell()
 	var now := Time.get_ticks_msec()
-	if spell == null or now < _ready_at or player == null:
+	if spell == null or now < _ready_at or player == null or _is_casting():
 		return
 	if not player.has_method("use_mana") or not player.use_mana(spell.mana_cost):
 		_ready_at = now + 350
@@ -121,15 +134,26 @@ func _try_cast() -> void:
 		Sfx.play(self, &"spell_fizzle", -6.0)
 		return
 	_ready_at = now + int(spell.cooldown * 1000.0)
+	_casting_spell = spell
+	_play_from_start(&"cast")  # carica: il cristallo si illumina, poi _release_cast()
+	_flash(glow_cast * 0.5, 0.12)
+
+
+# Chiamato dall'animazione "cast" (traccia metodo) quando il bastone scatta in avanti.
+func _release_cast() -> void:
+	var spell := _casting_spell
+	_casting_spell = null
+	if spell == null or player == null:
+		return
 	spell.cast(player, _aim())
-	_play_from_start(&"cast")
-	Sfx.play(self, &"spell_shard", -4.0, 0.08)
-	_flash(glow_cast, 0.25)
+	if spell.cast_sound != &"":
+		Sfx.play(self, spell.cast_sound, -2.0, 0.08)
+	_flash(glow_cast, 0.3)
 	if player.has_method("add_shake"):
-		player.add_shake(0.06)
+		player.add_shake(spell.cast_shake)
 
 
-## Da dove parte l'incantesimo e verso dove va: parte poco davanti e a destra della camera
+## Da dove parte l'incantesimo e verso dove va: parte poco davanti alla camera, dal lato della mano
 ## (vicino al cristallo) e punta a ciò che c'è sotto il mirino, così si colpisce dove si mira.
 func _aim() -> Transform3D:
 	var camera := get_viewport().get_camera_3d()
@@ -143,7 +167,7 @@ func _aim() -> Transform3D:
 			PhysicsRayQueryParameters3D.create(eye, target, 1, exclude))
 	if not hit.is_empty():
 		target = hit.position
-	var origin := eye + forward * 0.6 + camera.global_basis.x * 0.18 - camera.global_basis.y * 0.1
+	var origin := eye + forward * 0.6 + camera.global_basis.x * 0.18 * side() - camera.global_basis.y * 0.1
 	# Se il bersaglio è vicinissimo (o dietro il punto di partenza) si parte dagli occhi.
 	if (target - origin).dot(forward) < 0.5:
 		origin = eye
@@ -183,7 +207,3 @@ func _flash(energy: float, duration: float) -> void:
 		_light.light_energy = energy * 0.5
 		_glow_tween.tween_property(_light, "light_energy", 0.4, duration)
 
-
-func _play_from_start(anim_name: StringName) -> void:
-	anim.play(anim_name)
-	anim.seek(0.0, true)
