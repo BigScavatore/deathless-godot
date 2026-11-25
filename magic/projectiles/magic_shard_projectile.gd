@@ -10,6 +10,9 @@ extends Node3D
 ## e lui la respinge con lo scudo (parata o parry, vedi player.reflect_strength), riparte verso il
 ## mirino più veloce e più forte, con i rimbalzi ricaricati.
 
+const RenderLayers := preload("res://effects/layers.gd")
+const Beam := preload("res://magic/magic_beam.gd")
+
 var damage := 28.0
 var speed := 75.0
 var color := Color(0.62, 0.42, 1.0)
@@ -24,7 +27,7 @@ var reflectable := false
 
 var _exclude: Array[RID] = []
 var _start := Vector3.ZERO
-var _beam: MagicBeam
+var _beam: Beam
 var _done := false
 var _max_bounces := 0
 var _travelled := 0.0
@@ -39,7 +42,7 @@ func _ready() -> void:
 	shard.mesh = _shard_mesh()
 	shard.material_override = MagicFX.glow(color, 5.0)
 	shard.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	shard.layers = Layers.NO_BLOOD
+	shard.layers = RenderLayers.NO_BLOOD
 	shard.scale = Vector3.ONE * 1.6
 	add_child(shard)
 
@@ -52,7 +55,7 @@ func _ready() -> void:
 	sphere.material = MagicFX.additive(color, 0.35)
 	halo.mesh = sphere
 	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	halo.layers = Layers.NO_BLOOD
+	halo.layers = RenderLayers.NO_BLOOD
 	add_child(halo)
 
 	var light := OmniLight3D.new()
@@ -66,7 +69,7 @@ func _ready() -> void:
 	box.size = Vector3.ONE * 0.05
 	box.material = MagicFX.glow(color.lightened(0.3), 3.0)
 	trail.mesh = box
-	trail.layers = Layers.NO_BLOOD
+	trail.layers = RenderLayers.NO_BLOOD
 	trail.amount = 40
 	trail.lifetime = 0.35
 	trail.local_coords = false
@@ -185,7 +188,7 @@ func _new_beam() -> void:
 	if is_instance_valid(_beam):
 		_beam.fade(0.4)
 	_start = global_position
-	_beam = MagicBeam.new(color)
+	_beam = Beam.new(color)
 	get_tree().current_scene.add_child(_beam)
 
 

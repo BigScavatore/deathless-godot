@@ -20,6 +20,8 @@ extends Node3D
 ## Le armi usano viewmodel.gdshader: FOV proprio e sempre disegnate davanti al mondo
 ## (non entrano nei muri e non si deformano col FOV del dash).
 
+const RenderLayers := preload("res://effects/layers.gd")
+
 signal hand_changed(hand: Weapon.Hand, weapon: Weapon)
 
 const VIEWMODEL_SHADER := preload("res://player/viewmodel.gdshader")
@@ -279,7 +281,7 @@ func _apply_style(weapon: Node) -> void:
 	for child in weapon.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.layers = Layers.NO_BLOOD  # le macchie di sangue (Decal) non si proiettano sulle armi
+		mi.layers = RenderLayers.NO_BLOOD  # le macchie di sangue (Decal) non si proiettano sulle armi
 		if mi.mesh == null:
 			continue
 		for i in mi.mesh.get_surface_count():

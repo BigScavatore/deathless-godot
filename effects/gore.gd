@@ -13,10 +13,12 @@ class_name Gore
 ## persona, nemici e gibs stanno nel layer 2 (NO_BLOOD_LAYER), così il sangue non ci "scivola" sopra.
 ## Le macchie restano a terra; oltre MAX_DECALS si cancellano le più vecchie.
 
+const RenderLayers := preload("res://effects/layers.gd")
+
 ## Layer visivi (bitmask) che ricevono le macchie di sangue.
-const BLOOD_LAYERS := Layers.WORLD
+const BLOOD_LAYERS := RenderLayers.WORLD
 ## Layer visivo per ciò che NON deve ricevere sangue (viewmodel, nemici, gibs): vedi effects/layers.gd.
-const NO_BLOOD_LAYER := Layers.NO_BLOOD
+const NO_BLOOD_LAYER := RenderLayers.NO_BLOOD
 const MAX_DECALS := 120
 ## Secondi prima che i gibs spariscano.
 const GIB_TIME := 10.0

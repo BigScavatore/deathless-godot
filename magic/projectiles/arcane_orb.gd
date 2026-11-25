@@ -5,6 +5,8 @@ extends Node3D
 ## Prima gira attorno al player (la posizione la decide Synergies), poi un fendente lo lancia:
 ## vola dritto, e all'impatto esplode colpendo il bersaglio e tutti i nemici vicini.
 
+const RenderLayers := preload("res://effects/layers.gd")
+
 var color := Color(0.62, 0.42, 1.0)
 var damage := 30.0
 var blast_damage := 18.0
@@ -49,7 +51,7 @@ func _ready() -> void:
 
 	for mi in [core, halo]:
 		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		(mi as MeshInstance3D).layers = Layers.NO_BLOOD
+		(mi as MeshInstance3D).layers = RenderLayers.NO_BLOOD
 
 	var light := OmniLight3D.new()
 	light.light_color = color
@@ -62,7 +64,7 @@ func _ready() -> void:
 	box.size = Vector3.ONE * 0.04
 	box.material = MagicFX.glow(color.lightened(0.3), 3.0)
 	_trail.mesh = box
-	_trail.layers = Layers.NO_BLOOD
+	_trail.layers = RenderLayers.NO_BLOOD
 	_trail.amount = 16
 	_trail.lifetime = 0.4
 	_trail.local_coords = false

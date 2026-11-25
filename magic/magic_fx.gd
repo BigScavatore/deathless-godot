@@ -8,6 +8,8 @@ class_name MagicFX
 ##   MagicFX.sparks(root, pos, dir, color)            schizzo di scintille
 ##   (il raggio tra due punti è in magic/magic_beam.gd, classe MagicBeam)
 
+const RenderLayers := preload("res://effects/layers.gd")
+
 
 ## Luce puntiforme che parte forte e si spegne in `duration` secondi.
 static func flash(root: Node, pos: Vector3, color: Color, energy := 5.0, light_range := 5.0, duration := 0.18) -> void:
@@ -36,7 +38,7 @@ static func shockwave(root: Node, pos: Vector3, normal: Vector3, color: Color,
 	var ring := MeshInstance3D.new()
 	ring.mesh = torus
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	ring.layers = Layers.NO_BLOOD
+	ring.layers = RenderLayers.NO_BLOOD
 	root.add_child(ring)
 	# Il toro sta nel piano XZ: il suo asse Y va lungo la normale.
 	ring.global_transform = Transform3D(basis_along(normal), pos)
@@ -56,7 +58,7 @@ static func sparks(root: Node, pos: Vector3, direction: Vector3, color: Color, a
 	box.size = Vector3.ONE * size
 	box.material = glow(color.lightened(0.3), 3.0)
 	p.mesh = box
-	p.layers = Layers.NO_BLOOD
+	p.layers = RenderLayers.NO_BLOOD
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.one_shot = true
 	p.explosiveness = 1.0

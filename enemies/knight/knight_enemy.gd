@@ -13,6 +13,8 @@ extends CharacterBody3D
 ## riposted, backstabbed, get_up.
 ## Per muoversi usa la navmesh (NavigationAgent3D); se non c'è, va dritto verso il player.
 
+const RenderLayers := preload("res://effects/layers.gd")
+
 signal died
 
 enum State { IDLE, CHASE, ATTACK, RECOVER, RECOIL, HURT, STAGGER, CRITICAL, DEAD }
@@ -375,7 +377,7 @@ func _setup_flash() -> void:
 	_flash_material.albedo_color = Color(1, 1, 1, 0)
 	for child in $Model.find_children("*", "MeshInstance3D", true, false):
 		(child as MeshInstance3D).material_overlay = _flash_material
-		(child as MeshInstance3D).layers = Layers.NO_BLOOD  # il sangue a terra non gli sale addosso
+		(child as MeshInstance3D).layers = RenderLayers.NO_BLOOD  # il sangue a terra non gli sale addosso
 
 
 func _flash(color: Color, duration := 0.25) -> void:

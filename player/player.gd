@@ -3,7 +3,7 @@ extends CharacterBody3D
 ## scivolata e slam.
 ## WASD / stick sinistro = movimento, Spazio / A = salto (anche wall jump),
 ## Shift / B = dash, Ctrl / C / LB = scivolata (a terra) o slam (in aria),
-## mouse / stick destro = camera, Esc = rilascia il mouse.
+## mouse / stick destro = camera, Esc = menu di pausa e impostazioni (ui/settings.gd).
 ## Scivolata: velocità costante finché tieni premuto; saltando durante la scivolata
 ## mantieni lo slancio (salto lungo).
 ## Slam: picchiata verso il basso; all'impatto danneggia e lancia i nemici vicini.
@@ -159,8 +159,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and _locked_time <= 0.0:
 		_rotate_camera(event.relative * mouse_sensitivity)
-	elif event.is_action_pressed("ui_cancel"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
