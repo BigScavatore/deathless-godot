@@ -45,7 +45,10 @@ enum State { IDLE, CHASE, ATTACK, RECOVER, RECOIL, HURT, STAGGER, CRITICAL, DEAD
 @export var knockback := 3.5
 ## Angolo (dalla schiena) entro cui il player deve stare per il backstab.
 @export var backstab_angle_deg := 55.0
-## Secondi prima che il corpo sparisca.
+## Alla morte esplode in gibs e pozze di sangue (vedi effects/gore.gd).
+## Se false cade a terra con l'animazione "death" e il corpo sparisce dopo corpse_time.
+@export var gib_on_death := true
+## Secondi prima che il corpo sparisca (solo senza gib_on_death).
 @export var corpse_time := 5.0
 
 var health := 0.0
@@ -146,13 +149,33 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 
 
 func _die(play_animation := true) -> void:
+	if state == State.DEAD:
+		return
 	state = State.DEAD
 	collision_layer = 0  # il player ci passa sopra, ma il corpo resta appoggiato al pavimento
+	if gib_on_death:
+		died.emit()
+		_explode()
+		return
 	if play_animation:
 		_play_from_start(&"death")
 	died.emit()
 	await get_tree().create_timer(corpse_time).timeout
 	queue_free()
+
+
+func _explode() -> void:
+	# Il knockback del colpo finale spinge gibs e schizzi nella stessa direzione.
+	Gore.explode(self, global_position + Vector3.UP * 1.0, $Model, Vector3(velocity.x, 0.0, velocity.z))
+	if _player and _player.has_method("add_shake") and _distance_to_player() < 8.0:
+		_player.add_shake(0.3)
+	queue_free()
+
+
+## Chiamato dall'arma quando estrae la lama alla fine di riposte/backstab.
+func critical_released() -> void:
+	if state == State.CRITICAL and health <= 0.0 and gib_on_death:
+		_die(false)
 
 
 func _stagger() -> void:
@@ -352,6 +375,7 @@ func _setup_flash() -> void:
 	_flash_material.albedo_color = Color(1, 1, 1, 0)
 	for child in $Model.find_children("*", "MeshInstance3D", true, false):
 		(child as MeshInstance3D).material_overlay = _flash_material
+		(child as MeshInstance3D).layers = Gore.NO_BLOOD_LAYER  # il sangue a terra non gli sale addosso
 
 
 func _flash(color: Color, duration := 0.25) -> void:

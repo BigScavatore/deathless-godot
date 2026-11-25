@@ -235,6 +235,8 @@ func _on_critical_hit() -> void:
 
 # Chiamato quando la lama viene estratta.
 func _on_critical_release() -> void:
+	if is_instance_valid(_critical_target) and _critical_target.has_method("critical_released"):
+		_critical_target.critical_released()  # se il critico l'ha ucciso, esplode adesso
 	Sfx.play(self, &"stab_out", 0.0)
 	if player and player.has_method("add_shake"):
 		player.add_shake(0.3)

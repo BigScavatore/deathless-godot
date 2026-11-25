@@ -148,6 +148,7 @@ func _apply_style(weapon: Node) -> void:
 	for child in weapon.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.layers = Gore.NO_BLOOD_LAYER  # le macchie di sangue (Decal) non si proiettano sulle armi
 		if mi.mesh == null:
 			continue
 		for i in mi.mesh.get_surface_count():
