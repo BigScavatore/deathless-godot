@@ -9,11 +9,9 @@ extends CharacterBody3D
 ## Slam: picchiata verso il basso; all'impatto danneggia e lancia i nemici vicini.
 ## Saltando subito dopo lo slam fai un salto molto più alto (slam jump).
 ## Vita e danno: vedi take_damage() (convenzione in combat/combat.gd).
-## Mana: lo usano gli incantesimi (vedi use_mana()), si ricarica da solo dopo una breve pausa.
 
 signal health_changed(health: float, max_health: float)
 signal died
-signal mana_changed(mana: float, max_mana: float)
 
 ## Scala del progetto: 1 unità = 1 metro.
 @export_group("Size")
@@ -89,13 +87,6 @@ signal mana_changed(mana: float, max_mana: float)
 ## Massima rotazione (radianti) della camera durante lo shake.
 @export var max_shake := 0.045
 
-@export_group("Mana")
-@export var max_mana := 100.0
-## Mana recuperato al secondo.
-@export var mana_regen := 9.0
-## Secondi dopo l'ultimo incantesimo prima che il mana inizi a ricaricarsi.
-@export var mana_regen_delay := 0.8
-
 @onready var _collision: CollisionShape3D = $CollisionShape3D
 @onready var _head: Node3D = $Head
 @onready var _camera: Camera3D = $Head/Camera3D
@@ -103,8 +94,6 @@ signal mana_changed(mana: float, max_mana: float)
 @onready var _hud: CanvasLayer = $HUD
 
 var health := 0.0
-var mana := 0.0
-var _mana_regen_wait := 0.0
 var _dead := false
 var _shake := 0.0
 
@@ -139,7 +128,6 @@ func _ready() -> void:
 	_wall_jumps_left = max_wall_jumps
 	_camera.fov = base_fov
 	health = max_health
-	mana = max_mana
 	add_to_group("player")
 	_hud.set_health(health, max_health)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -163,7 +151,6 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_update_shake(delta)
-	_update_mana(delta)
 
 
 func _physics_process(delta: float) -> void:
@@ -321,42 +308,6 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 	if health <= 0.0:
 		_die()
 	return result
-
-
-## Spende mana: false (e niente speso) se non basta.
-func use_mana(amount: float) -> bool:
-	if _dead or mana < amount:
-		return false
-	mana -= amount
-	_mana_regen_wait = mana_regen_delay
-	mana_changed.emit(mana, max_mana)
-	return true
-
-
-func restore_mana(amount: float) -> void:
-	mana = minf(mana + amount, max_mana)
-	mana_changed.emit(mana, max_mana)
-
-
-func _update_mana(delta: float) -> void:
-	if _mana_regen_wait > 0.0:
-		_mana_regen_wait -= delta
-	elif mana < max_mana and not _dead:
-		mana = minf(mana + mana_regen * delta, max_mana)
-		mana_changed.emit(mana, max_mana)
-
-
-## Per la HUD: l'arma in mano, tutte le armi e le cariche del dash.
-func current_weapon() -> Weapon:
-	return _viewmodel.current_weapon()
-
-
-func all_weapons() -> Array[Weapon]:
-	return _viewmodel.all_weapons()
-
-
-func dash_charges() -> float:
-	return _dash_charges
 
 
 ## "Trauma" della camera da 0 a 1 (si somma e decade da solo).
@@ -611,7 +562,6 @@ func _register_input_actions() -> void:
 	_add_action("attack", [_mouse(MOUSE_BUTTON_LEFT), _axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)])
 	_add_action("block", [_mouse(MOUSE_BUTTON_RIGHT), _axis(JOY_AXIS_TRIGGER_LEFT, 1.0)])
 	_add_action("parry", [_key(KEY_F), _mouse(MOUSE_BUTTON_XBUTTON1), _button(JOY_BUTTON_RIGHT_SHOULDER)])
-	_add_action("next_mode", [_key(KEY_R), _button(JOY_BUTTON_X)])
 	_add_action("weapon_next", [_mouse(MOUSE_BUTTON_WHEEL_DOWN), _button(JOY_BUTTON_Y)])
 	_add_action("weapon_prev", [_mouse(MOUSE_BUTTON_WHEEL_UP)])
 	for i in 9:
