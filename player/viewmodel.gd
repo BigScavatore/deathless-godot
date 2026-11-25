@@ -5,7 +5,8 @@ extends Node3D
 ## Le armi sono scene separate (vedi player/weapons/weapon.gd): aggiungile alla lista "weapons".
 ## Il sway sta qui, le animazioni dentro ogni arma: i due movimenti si sommano senza pestarsi i piedi.
 ## Comandi: click sinistro / RT = primario, click destro / LT = secondario (parata),
-## F / tasto laterale del mouse / RB = parry, rotella o 1-9 = cambio arma, Y (pad) = arma successiva.
+## F / tasto laterale del mouse / RB = parry, R / X (pad) = modalità successiva (es. incantesimo del bastone),
+## rotella o 1-9 = cambio arma, Y (pad) = arma successiva.
 ##
 ## Le armi usano viewmodel.gdshader: FOV proprio e sempre disegnate davanti al mondo
 ## (non entrano nei muri e non si deformano col FOV del dash).
@@ -64,6 +65,11 @@ func current_weapon() -> Weapon:
 	return _current
 
 
+## Tutte le armi, nell'ordine dei tasti 1-9 (per la HUD).
+func all_weapons() -> Array[Weapon]:
+	return _weapons
+
+
 func switch_to(index: int) -> void:
 	if index < 0 or index >= _weapons.size() or _switching:
 		return
@@ -111,6 +117,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_current.secondary_released()
 	elif event.is_action_pressed("parry"):
 		_current.parry_pressed()
+	elif event.is_action_pressed("next_mode"):
+		_current.next_mode_pressed()
 
 
 func _process(delta: float) -> void:
@@ -162,4 +170,7 @@ func _apply_style(weapon: Node) -> void:
 				styled.set_shader_parameter("roughness", base.roughness)
 				styled.set_shader_parameter("metallic", base.metallic)
 				styled.set_shader_parameter("viewmodel_fov", viewmodel_fov)
+				if base.emission_enabled:
+					styled.set_shader_parameter("emission_color", base.emission)
+					styled.set_shader_parameter("emission_energy", base.emission_energy_multiplier)
 				mi.set_surface_override_material(i, styled)

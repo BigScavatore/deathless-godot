@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Genera claymore e brocchiero in prima persona (assets/models/viewmodel.glb), stile low-poly "gritty".
-Si vedono solo le armi, senza mani né braccia.
+"""Genera le armi in prima persona, stile low-poly "gritty". Si vedono solo le armi, senza mani né braccia.
+  - assets/models/viewmodel.glb   claymore e brocchiero
+  - assets/models/staff.glb       bastone magico (cristallo luminoso in un nodo a parte, "Crystal")
 
 Uso:
-    python tools/generate_viewmodel.py                       # scrive assets/models/viewmodel.glb
+    python tools/generate_viewmodel.py                       # scrive viewmodel.glb e staff.glb
     python tools/generate_viewmodel.py --preview anteprima.png   # + anteprima dal punto di vista del player
 
 Stile (ispirato a DUSK): pochi poligoni, texture piccole e pixelate (atlas 3x3 da 256 px,
@@ -41,7 +42,7 @@ ATLAS_W, ATLAS_H = COLS * TILE, ROWS * TILE
 DENSITY = 300.0     # texel per metro (1 tile = ~0.85 m): pixel ancora visibili ma meno grossolani
 LEVELS = 16         # livelli per canale: palette posterizzata
 
-TILE_NAMES = ["iron", "steel", "leather", "brass", "wood_paint", "rust", "wood"]
+TILE_NAMES = ["iron", "steel", "leather", "brass", "wood_paint", "rust", "wood", "crystal", "bone"]
 
 
 def _blocks(rng, cell):
@@ -154,7 +155,29 @@ def tile_rust(rng):
     return img
 
 
-TILE_FUNCS = [tile_iron, tile_steel, tile_leather, tile_brass, tile_wood_paint, tile_rust, tile_wood]
+def tile_crystal(rng):
+    """Cristallo magico: sfaccettature viola/azzurre con venature chiare (diventa luminoso nel gioco)."""
+    img = _base(rng, (0.42, 0.30, 0.85), 0.5)
+    n = _fbm(rng)
+    _mix(img, n > 0.62, (0.55, 0.80, 1.00), 0.7)                      # zone più chiare
+    _mix(img, n < 0.30, (0.20, 0.10, 0.45), 0.6)                      # zone profonde
+    _scratches(img, rng, 25, (10, 40), 0.25, angles=(0.9, 2.2))      # venature
+    _specks(img, rng, 40, 0.35)
+    return img
+
+
+def tile_bone(rng):
+    """Osso/corno ingiallito e sporco (artigli della testa del bastone)."""
+    img = _base(rng, (0.62, 0.56, 0.42), 0.35)
+    img += (rng.random(TILE) * 0.06)[:, None, None]                  # anelli di crescita
+    _mix(img, _fbm(rng) > 0.68, (0.30, 0.22, 0.14), 0.6)              # sporco
+    _scratches(img, rng, 35, (6, 20), -0.12)
+    _specks(img, rng, 70, -0.15)
+    return img
+
+
+TILE_FUNCS = [tile_iron, tile_steel, tile_leather, tile_brass, tile_wood_paint, tile_rust, tile_wood,
+              tile_crystal, tile_bone]
 
 
 def build_atlas():
@@ -332,6 +355,77 @@ def build_shield():
     return node("Shield", pos=SHIELD_POS, rot=SHIELD_ROT, parts=parts)
 
 
+# Bastone: pivot alla spalla destra, impugnatura poco sotto la metà del bastone.
+STAFF_PIVOT = (0.30, -0.50, -0.04)
+STAFF_HAND = (0.0, 0.10, -0.36)            # relativo al pivot: dove la mano stringe il bastone
+STAFF_ROT = (-18, 0, 14)                   # testa in avanti e inclinata verso il centro dello schermo
+CRYSTAL_Y = 0.62                           # altezza del centro del cristallo lungo il bastone
+
+
+def claw(angle_deg, seed):
+    """Artiglio d'osso che sale dalla testa del bastone e si piega verso il cristallo."""
+    a = math.radians(angle_deg)
+    out = []
+    # (raggio dal centro, altezza, spessore) dei pezzi, dal basso verso la punta
+    steps = [(0.030, 0.47, 0.017), (0.062, 0.52, 0.014), (0.074, 0.59, 0.012), (0.064, 0.66, 0.009), (0.042, 0.71, 0.006)]
+    for i in range(len(steps) - 1):
+        r0, y0, t0 = steps[i]
+        r1, y1, t1 = steps[i + 1]
+        p0 = np.array((r0 * math.cos(a), y0, r0 * math.sin(a)))
+        p1 = np.array((r1 * math.cos(a), y1, r1 * math.sin(a)))
+        d = p1 - p0
+        length = float(np.linalg.norm(d))
+        seg = cyl(t0, t1, length, seg=6)
+        # ruota l'asse +Y del segmento lungo d
+        y_axis = d / length
+        x_axis = np.cross(y_axis, (0.0, 0.0, 1.0)) if abs(y_axis[2]) < 0.9 else np.cross(y_axis, (1.0, 0.0, 0.0))
+        x_axis /= np.linalg.norm(x_axis)
+        z_axis = np.cross(x_axis, y_axis)
+        rot = np.stack([x_axis, y_axis, z_axis], axis=1)
+        out.append((jitter(seg @ rot.T + p0, 0.0015, seed + i), "bone"))
+    return out
+
+
+def build_staff():
+    # Asse del bastone = +Y, mano all'origine. Legno nodoso a segmenti un po' storti,
+    # fasce di ferro, impugnatura in cuoio, puntale e una testa con artigli d'osso che stringono il cristallo.
+    parts = []
+    rng = np.random.default_rng(77)
+    y, x, z = -0.62, 0.0, 0.0
+    for i in range(11):                                                   # fusto nodoso
+        length = 0.098
+        r0 = 0.021 + 0.003 * rng.random()
+        nx, nz = x + rng.uniform(-0.006, 0.006), z + rng.uniform(-0.006, 0.006)
+        seg = cyl(r0, 0.020 + 0.003 * rng.random(), length + 0.004, seg=8, base=(0, 0, 0), phase=rng.uniform(0, 45))
+        seg[:, :, 0] += x + (nx - x) * seg[:, :, 1] / length               # leggera curva
+        seg[:, :, 2] += z + (nz - z) * seg[:, :, 1] / length
+        seg[:, :, 1] += y
+        parts.append((jitter(seg, 0.0012, 300 + i), "wood"))
+        y, x, z = y + length, nx, nz
+    for by in (-0.30, 0.18, 0.40):                                       # fasce di ferro
+        parts.append((jitter(cyl(0.026, 0.026, 0.022, seg=8, base=(0, by, 0)), 0.001, int(by * 100) + 400), "iron"))
+    for i in range(6):                                                    # impugnatura fasciata
+        r = 0.025 + 0.002 * (i % 2)
+        parts.append((cyl(r, r, 0.028, seg=8, base=(0, -0.09 + 0.028 * i, 0), phase=15 * i), "leather"))
+    parts.append((cyl(0.016, 0.004, 0.06, seg=6, base=(0, -0.68, 0)), "rust"))       # puntale
+    parts.append((cyl(0.024, 0.016, 0.02, seg=8, base=(0, -0.63, 0)), "rust"))
+    parts.append((cyl(0.024, 0.034, 0.04, seg=8, base=(0, 0.45, 0)), "iron"))         # coppa della testa
+    for k in range(4):
+        parts += claw(45 + 90 * k + rng.uniform(-12, 12), 500 + 10 * k)
+    # Cristallo: bipiramide a 6 lati, un po' storta (nodo separato: nel gioco ha un materiale luminoso)
+    lower = cyl(0.0, 0.040, 0.07, seg=6, phase=10)
+    upper = cyl(0.040, 0.0, 0.13, seg=6, base=(0, 0.07, 0), phase=10)
+    crystal_tris = np.concatenate([lower, upper])
+    crystal = node("Crystal", pos=(0, CRYSTAL_Y - 0.07, 0), rot=(0, 0, -6),
+                   parts=[(jitter(crystal_tris, 0.002, 600), "crystal")])
+    crystal["material"] = 1
+    return node("Staff", pos=STAFF_HAND, rot=STAFF_ROT, parts=parts, children=[crystal])
+
+
+def build_staff_viewmodel():
+    return node("StaffModel", children=[node("StaffArm", pos=STAFF_PIVOT, children=[build_staff()])])
+
+
 def build_viewmodel():
     # Niente mani né avambracci: si vedono solo le armi (i pivot restano alla spalla per le animazioni).
     sword_arm = node("SwordArm", pos=SWORD_PIVOT, children=[build_sword()])
@@ -357,6 +451,16 @@ def write_glb(root, path, atlas):
                 "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
                 "metallicFactor": 0.0, "roughnessFactor": 1.0,
             },
+        }, {
+            # Stesso atlas, ma luminoso (cristalli magici). Nel gioco il colore lo decide l'arma.
+            "name": "viewmodel_glow",
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {"index": 0},
+                "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+                "metallicFactor": 0.0, "roughnessFactor": 0.4,
+            },
+            "emissiveTexture": {"index": 0},
+            "emissiveFactor": [1.0, 1.0, 1.0],
         }],
     }
     blob = bytearray()
@@ -403,7 +507,7 @@ def write_glb(root, path, atlas):
                     "NORMAL": add_attr(flat_normals(tris), "VEC3"),
                     "TEXCOORD_0": add_attr(uvs.reshape(-1, 2), "VEC2"),
                 },
-                "material": 0, "mode": 4,
+                "material": n.get("material", 0), "mode": 4,
             }]})
             g["mesh"] = len(gltf["meshes"]) - 1
         kids = [add_node(c) for c in n["children"]]
@@ -520,6 +624,7 @@ def main():
     repo_root = Path(__file__).resolve().parent.parent
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default=str(repo_root / "assets" / "models" / "viewmodel.glb"))
+    ap.add_argument("--staff-out", default=str(repo_root / "assets" / "models" / "staff.glb"))
     ap.add_argument("--preview", help="percorso PNG per l'anteprima dal punto di vista del player")
     args = ap.parse_args()
 
@@ -529,9 +634,16 @@ def main():
     n_tris = sum(len(t) for t, _ in world_geometry(root))
     print(f"Scritto {args.out}")
     print(f"  triangoli: {n_tris} | nodi: {len(gltf['nodes'])} | atlas: {ATLAS_W}x{ATLAS_H}")
+    staff = build_staff_viewmodel()
+    gltf = write_glb(staff, args.staff_out, atlas)
+    n_tris = sum(len(t) for t, _ in world_geometry(staff))
+    print(f"Scritto {args.staff_out}")
+    print(f"  triangoli: {n_tris} | nodi: {len(gltf['nodes'])}")
     if args.preview:
         render_preview(root, atlas, args.preview)
-        print(f"Anteprima: {args.preview}")
+        staff_preview = str(Path(args.preview).with_name(Path(args.preview).stem + "_staff.png"))
+        render_preview(staff, atlas, staff_preview)
+        print(f"Anteprima: {args.preview}, {staff_preview}")
 
 
 if __name__ == "__main__":
