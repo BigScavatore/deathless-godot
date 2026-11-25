@@ -14,6 +14,10 @@ config/name="Deathless"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+Settings="*res://ui/settings.gd"
+
 [display]
 
 window/stretch/mode="canvas_items"

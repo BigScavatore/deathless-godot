@@ -1,11 +1,13 @@
-class_name MagicBeam
 extends Node3D
 ## Raggio luminoso tra due punti: un nucleo chiaro e un alone colorato (cilindri additivi).
-##   var beam := MagicBeam.new(color)
+##   const Beam := preload("res://magic/magic_beam.gd")
+##   var beam := Beam.new(color)
 ##   root.add_child(beam)
 ##   beam.set_points(from, to)       # ogni frame, mentre serve
 ##   beam.fade()                     # si spegne e si distrugge da solo
 ## Non dipende da altre classi del gioco (solo Layers), così non crea riferimenti circolari.
+
+const RenderLayers := preload("res://effects/layers.gd")
 
 var _core: MeshInstance3D
 var _halo: MeshInstance3D
@@ -67,7 +69,7 @@ func _cylinder(radius: float, mat: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = cyl
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.layers = Layers.NO_BLOOD
+	mi.layers = RenderLayers.NO_BLOOD
 	return mi
 
 
