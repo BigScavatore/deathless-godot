@@ -5,11 +5,12 @@ extends CanvasLayer
 ## così ogni elemento, anche le animazioni, resta allineato alla griglia dei pixel.
 ##
 ##   in basso a sinistra   vita (con la parte persa che si svuota in ritardo), mana, cariche del dash
-##   in basso a destra     arma in mano, slot delle armi (1-9); col bastone: incantesimo, costo, ricarica
+##   in basso a destra     le due mani: arma impugnata, quante armi ha la mano e il tasto per cambiarla;
+##                         con un bastone anche incantesimo, costo e ricarica
 ##   al centro             mirino (col bastone prende il colore dell'incantesimo), "PARRY", messaggi
 ##
 ## Il player chiama set_health(), flash_damage(), flash_parry() e show_message();
-## mana, dash e arma vengono letti dal player a ogni frame (vedi _process).
+## mana, dash e armi delle due mani vengono letti dal player a ogni frame (vedi _process).
 
 ## Grandezza dei pixel della HUD (3 = a 1080p la HUD è disegnata a 640x360).
 @export_range(1, 8) var pixel_scale := 3
@@ -117,13 +118,11 @@ func _process(_delta: float) -> void:
 			_parry_time = -1.0
 	_message_time = maxf(_message_time - dt, 0.0)
 
-	if not _connected and _player and _player.has_method("all_weapons"):
+	if not _connected and _player and _player.has_signal("spell_learned"):
 		_connected = true
-		for weapon in _player.all_weapons():
-			if weapon.has_signal("spell_unlocked"):
-				weapon.spell_unlocked.connect(func(spell: Spell) -> void:
-					show_message("Nuovo incantesimo: " + spell.display_name, spell.color.lightened(0.3), 3.5)
-				)
+		_player.spell_learned.connect(func(spell: Spell) -> void:
+			show_message("Nuovo incantesimo: " + spell.display_name, spell.color.lightened(0.3), 3.5)
+		)
 	_canvas.queue_redraw()
 
 
@@ -138,8 +137,14 @@ class Canvas extends Control:
 
 func _draw_hud(ci: Control) -> void:
 	var size := ci.size
-	var weapon: Weapon = _player.current_weapon() if _player and _player.has_method("current_weapon") else null
-	var info: Dictionary = weapon.hud_info() if weapon else {}
+	var right: Weapon = _hand(Weapon.Hand.RIGHT)
+	var left: Weapon = _hand(Weapon.Hand.LEFT)
+	# Il mirino segue il primo bastone in mano (la destra prima).
+	var info: Dictionary = {}
+	for weapon in [right, left]:
+		if weapon and (weapon as Weapon).hud_info().has("spell"):
+			info = (weapon as Weapon).hud_info()
+			break
 
 	# Lampi a tutto schermo (danno, parry) e bordo rosso con poca vita.
 	if _damage_flash > 0.0:
@@ -154,7 +159,7 @@ func _draw_hud(ci: Control) -> void:
 
 	_draw_crosshair(ci, size, info)
 	_draw_vitals(ci, size)
-	_draw_weapon(ci, size, weapon, info)
+	_draw_hands(ci, size, right, left)
 
 	if _parry_time >= 0.0:
 		var big := 4 if _parry_time < 0.07 else 3
@@ -219,47 +224,92 @@ func _draw_vitals(ci: Control, size: Vector2) -> void:
 				ci.draw_rect(Rect2(r.position, Vector2(roundf(r.size.x * fill), r.size.y)), DASH if fill >= 1.0 else DASH.darkened(0.5))
 
 
-func _draw_weapon(ci: Control, size: Vector2, weapon: Weapon, info: Dictionary) -> void:
-	if weapon == null:
-		return
-	var spell: Spell = info.get("spell")
-	var spells: Array = info.get("spells", [])
-	var name_w := PixelFont.width(weapon.display_name)
-	var width := maxi(name_w + 12, 120)
-	var panel := Rect2(size.x - 6 - width, size.y - 40, width, 34)
+func _hand(hand: Weapon.Hand) -> Weapon:
+	if _player and _player.has_method("hand_item"):
+		return _player.hand_item(hand)
+	return null
+
+
+## Pannello delle mani: una riga per mano ("DX" sopra, "SX" sotto) con l'arma, le tacche delle
+## armi disponibili in quella mano e il tasto per cambiarla. Sotto a un bastone, la riga dell'incantesimo.
+func _draw_hands(ci: Control, size: Vector2, right: Weapon, left: Weapon) -> void:
+	var rows := [[Weapon.Hand.RIGHT, right, "DX", "[E]"], [Weapon.Hand.LEFT, left, "SX", "[Q]"]]
+	# Larghezza e altezza in base al contenuto.
+	var width := 132
+	var height := 8
+	var has_shield := false
+	for row in rows:
+		var weapon: Weapon = row[1]
+		height += 11
+		if weapon == null:
+			continue
+		width = maxi(width, 30 + PixelFont.width(weapon.display_name) + 40)
+		var info := weapon.hud_info()
+		if info.has("spell") and info["spell"] != null:
+			height += 14
+			width = maxi(width, 30 + PixelFont.width((info["spell"] as Spell).display_name) + 44)
+		if weapon.can_parry():
+			has_shield = true
+	var panel := Rect2(size.x - 6 - width, size.y - 6 - height, width, height)
 	_draw_panel(ci, panel)
 	var x := panel.position.x + 6
-	var y := panel.position.y + 6
-	PixelFont.draw(ci, Vector2(x, y), weapon.display_name, GOLD)
+	var y := panel.position.y + 5
 
-	if spell:
-		var icon_pos := Vector2(x, y + 10)
+	for row in rows:
+		var hand: Weapon.Hand = row[0]
+		var weapon: Weapon = row[1]
+		# Etichetta della mano.
+		var tag := Rect2(x, y - 1, 13, 9)
+		ci.draw_rect(tag.grow(1), Color(0, 0, 0, 0.9))
+		ci.draw_rect(tag, Color(0.25, 0.18, 0.08) if hand == Weapon.Hand.RIGHT else Color(0.12, 0.11, 0.13))
+		PixelFont.draw(ci, tag.position + Vector2(1, 1), row[2], GOLD if hand == Weapon.Hand.RIGHT else BONE, 1, Color(0, 0, 0, 0))
+		var label := weapon.display_name if weapon else "-"
+		PixelFont.draw(ci, Vector2(x + 18, y), label, GOLD if weapon else DIM)
+		# Tacche: quante armi ha la mano e quale è impugnata, poi il tasto per cambiarla.
+		var list: Array = _player.hand_items(hand) if _player and _player.has_method("hand_items") else []
+		var key_w := PixelFont.width(row[3])
+		var kx := panel.end.x - 6 - key_w
+		if list.size() > 1:
+			PixelFont.draw(ci, Vector2(kx, y), row[3], DIM)
+			for i in list.size():
+				var dot := Rect2(kx - 4 - (list.size() - i) * 5, y + 2, 3, 3)
+				ci.draw_rect(dot.grow(1), Color(0, 0, 0, 0.9))
+				ci.draw_rect(dot, GOLD if list[i] == weapon else Color(0.2, 0.18, 0.16))
+		y += 11
+
+		if weapon == null:
+			continue
+		var info := weapon.hud_info()
+		var spell: Spell = info.get("spell")
+		if spell == null:
+			continue
+		# Riga dell'incantesimo: icona, nome, costo; [R] e i quadratini se ce n'è più d'uno.
+		var icon_pos := Vector2(x + 18, y)
 		ci.draw_rect(Rect2(icon_pos - Vector2(1, 1), Vector2(13, 13)), Color(0, 0, 0, 0.9))
 		ci.draw_rect(Rect2(icon_pos, Vector2(11, 11)), Color(0.08, 0.06, 0.1))
 		ci.draw_texture(_spell_icon(spell), icon_pos)
+		var charge: float = info.get("ready", 1.0)
+		if charge < 1.0:  # ricarica: l'icona si "riempie" dal basso
+			var h := roundf(11.0 * (1.0 - charge))
+			ci.draw_rect(Rect2(icon_pos, Vector2(11, h)), Color(0, 0, 0, 0.6))
 		var enough: bool = _player.mana >= spell.mana_cost
-		PixelFont.draw(ci, Vector2(x + 16, y + 10), spell.display_name, spell.color.lightened(0.35))
-		PixelFont.draw(ci, Vector2(x + 16, y + 19), "%d MANA" % roundi(spell.mana_cost), BONE if enough else Color(1, 0.3, 0.25))
-		# Altri incantesimi sbloccati: quadratini, quello scelto evidenziato. [R] per cambiare.
+		PixelFont.draw(ci, Vector2(x + 34, y), spell.display_name, spell.color.lightened(0.35))
+		var spells: Array = info.get("spells", [])
+		var cost := "%d MANA" % roundi(spell.mana_cost)
+		PixelFont.draw(ci, Vector2(x + 34, y + 7), cost, BONE if enough else Color(1, 0.3, 0.25))
 		if spells.size() > 1:
 			var sx := panel.end.x - 6 - spells.size() * 7
 			for i in spells.size():
 				var s: Spell = spells[i]
-				var r := Rect2(sx + i * 7, y + 21, 5, 5)
+				var r := Rect2(sx + i * 7, y + 8, 5, 5)
 				ci.draw_rect(r.grow(1), Color.WHITE if s == spell else Color(0, 0, 0, 0.9))
 				ci.draw_rect(r, s.color)
-			PixelFont.draw(ci, Vector2(sx - 3 - PixelFont.width("[R]"), y + 19), "[R]", DIM)
-	else:
-		PixelFont.draw(ci, Vector2(x, y + 14), "[F] PARRY", DIM)
+			PixelFont.draw(ci, Vector2(sx - 3 - PixelFont.width("[R]"), y + 7), "[R]", DIM)
+		y += 14
 
-	# Slot delle armi (tasti 1-9) sopra il pannello.
-	var weapons: Array = _player.all_weapons() if _player.has_method("all_weapons") else []
-	for i in weapons.size():
-		var r := Rect2(panel.end.x - (weapons.size() - i) * 12 + 1, panel.position.y - 12, 11, 10)
-		var current: bool = weapons[i] == weapon
-		ci.draw_rect(r.grow(1), Color(0, 0, 0, 0.85))
-		ci.draw_rect(r, Color(0.25, 0.18, 0.08) if current else Color(0.1, 0.09, 0.09))
-		PixelFont.draw(ci, r.position + Vector2(3, 2), str(i + 1), GOLD if current else DIM, 1, Color(0, 0, 0, 0))
+	if has_shield:
+		var hint := "[F] PARRY"
+		PixelFont.draw(ci, Vector2(panel.end.x - PixelFont.width(hint), panel.position.y - 10), hint, DIM)
 
 
 ## Pannello di ferro: bordo nero, bevel chiaro/scuro e quattro rivetti d'ottone.

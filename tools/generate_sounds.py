@@ -391,26 +391,29 @@ def snd_gib_splat(rng):
 
 
 def snd_spell_shard(rng):
-    """Scheggia magica lanciata: "zing" cristallino che sale + soffio."""
-    d = 0.45
+    """Scheggia magica lanciata: colpo sordo, "zing" cristallino che sale e un sibilo che si allontana."""
+    d = 0.9
     n = int(d * SR)
     t = np.arange(n) / SR
-    x = np.zeros(n)
-    for k, f0 in enumerate((900, 1350, 2020)):                      # parziali cristalline che salgono
-        f = f0 * rng.uniform(0.95, 1.05) * (1.0 + 0.6 * (1 - np.exp(-t / 0.05)))
-        x += np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / (0.12 - 0.03 * k)) / (k + 1)
-    x += 0.8 * whoosh(rng, d, 400, 2400, 900, q=1.4, peak_at=0.12)
-    return dirty(fade_out(x, 0.05), rng, drive=1.6, tone=3200.0, wet=0.25)
+    x = 1.3 * thud(rng, d, 150, 45, 0.08)                                # botta del lancio
+    for k, f0 in enumerate((700, 1050, 1580, 2370)):                    # parziali cristalline che salgono
+        f = f0 * rng.uniform(0.97, 1.03) * (1.0 + 0.8 * (1 - np.exp(-t / 0.06)))
+        x += 0.9 * np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / (0.22 - 0.04 * k)) / (k + 1)
+    x += 1.1 * whoosh(rng, d, 300, 2600, 500, q=1.3, peak_at=0.08)    # sibilo
+    x += 0.5 * grains(rng, d, 40, length=0.004, cutoff=3000, decay=0.12)  # crepitio
+    return dirty(fade_out(x, 0.08), rng, drive=2.2, tone=3200.0, wet=0.3, room_decay=1.0)
 
 
 def snd_shard_hit(rng):
-    """La scheggia si frantuma: tintinnio di vetro + piccolo colpo."""
-    d = 0.5
-    x = 0.8 * thud(rng, d, 200, 80, 0.04)
-    for _ in range(7):
-        place(x, metal(rng, 0.25, rng.uniform(2200, 4200), 0.04, partials=3, bright=0.9), rng.exponential(0.03), rng.uniform(0.2, 0.5))
-    x += 0.7 * grains(rng, d, 40, length=0.003, cutoff=3000, decay=0.06)
-    return dirty(fade_out(x, 0.05), rng, drive=1.8, tone=3500.0, wet=0.25)
+    """La scheggia esplode sul bersaglio: botta, vetro che si frantuma, schegge che ricadono."""
+    d = 0.9
+    x = 1.6 * thud(rng, d, 180, 50, 0.08)
+    for _ in range(12):
+        place(x, metal(rng, 0.3, rng.uniform(1800, 4400), 0.05, partials=3, bright=0.9), rng.exponential(0.05), rng.uniform(0.2, 0.55))
+    x += 0.9 * grains(rng, d, 80, length=0.004, cutoff=2800, decay=0.15)
+    n = int(d * SR)
+    x += 0.6 * svf(white(rng, n), np.linspace(2500, 400, n), 1.0, "low") * env_exp(n, 0.06)
+    return dirty(fade_out(x, 0.08), rng, drive=2.5, tone=3400.0, wet=0.3, room_decay=1.0)
 
 
 def snd_spell_fizzle(rng):

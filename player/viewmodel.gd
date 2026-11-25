@@ -1,21 +1,33 @@
 extends Node3D
-## Porta-armi in prima persona: oscillazioni di movimento (sway/bob), cambio arma e input.
+## Porta-armi in prima persona: due mani (come in Dark Souls), oscillazioni di movimento, cambio arma e input.
 ## Va messo come figlio della Camera3D (vedi player.tscn).
 ##
-## Le armi sono scene separate (vedi player/weapons/weapon.gd): aggiungile alla lista "weapons".
-## Il sway sta qui, le animazioni dentro ogni arma: i due movimenti si sommano senza pestarsi i piedi.
-## Comandi: click sinistro / RT = primario, click destro / LT = secondario (parata),
-## F / tasto laterale del mouse / RB = parry, R / X (pad) = modalità successiva (es. incantesimo del bastone),
-## rotella o 1-9 = cambio arma, Y (pad) = arma successiva.
+## Ogni mano ha una lista di armi ("right_hand", "left_hand") e ne impugna una alla volta;
+## qualsiasi arma va in qualsiasi mano: se è modellata per l'altra mano viene specchiata
+## (vedi player/weapons/weapon.gd). Il sway sta qui, le animazioni dentro ogni arma.
+##
+## Comandi:
+##   click sinistro / RT        = arma nella mano destra (fendente, lancio, parata...)
+##   click destro / LT          = arma nella mano sinistra
+##   F / tasto laterale / RB    = parry (con lo scudo, in qualunque mano)
+##   R / X (pad)                = modalità successiva (es. incantesimo del bastone)
+##   E / rotella giù / croce dx = arma successiva nella mano destra
+##   Q / rotella su / croce sx  = arma successiva nella mano sinistra
+## Per cambiare l'equipaggiamento da codice (inventario, oggetti raccolti): set_hand_items().
 ##
 ## Le armi usano viewmodel.gdshader: FOV proprio e sempre disegnate davanti al mondo
 ## (non entrano nei muri e non si deformano col FOV del dash).
 
-const VIEWMODEL_SHADER := preload("res://player/viewmodel.gdshader")
+signal hand_changed(hand: Weapon.Hand, weapon: Weapon)
 
-## Scene delle armi disponibili (la radice di ognuna deve estendere Weapon).
-@export var weapons: Array[PackedScene] = []
-@export var start_weapon := 0
+const VIEWMODEL_SHADER := preload("res://player/viewmodel.gdshader")
+const RIGHT := Weapon.Hand.RIGHT
+const LEFT := Weapon.Hand.LEFT
+
+## Armi a disposizione della mano destra / sinistra (la radice di ognuna deve estendere Weapon).
+## La stessa scena può stare in entrambe le liste: ogni mano ha la sua copia.
+@export var right_hand: Array[PackedScene] = []
+@export var left_hand: Array[PackedScene] = []
 ## FOV con cui vengono disegnate le armi (indipendente da quello della camera).
 @export_range(30.0, 120.0) var viewmodel_fov := 75.0
 
@@ -34,9 +46,10 @@ var _base_position := Vector3.ZERO
 var _bob_time := 0.0
 var _idle_time := 0.0
 
-var _weapons: Array[Weapon] = []
-var _current: Weapon
-var _switching := false
+## Per ogni mano: le armi istanziate, l'indice di quella in mano, se sta cambiando arma.
+var _slots := {}
+var _index := {RIGHT: 0, LEFT: 0}
+var _switching := {RIGHT: false, LEFT: false}
 
 
 func _ready() -> void:
@@ -45,51 +58,105 @@ func _ready() -> void:
 	while n != null and not n is CharacterBody3D:
 		n = n.get_parent()
 	_player = n as CharacterBody3D
+	var empty_right: Array[Weapon] = []
+	var empty_left: Array[Weapon] = []
+	_slots = {RIGHT: empty_right, LEFT: empty_left}
+	set_hand_items(RIGHT, right_hand)
+	set_hand_items(LEFT, left_hand)
 
-	for scene in weapons:
+
+# --- Equipaggiamento -------------------------------------------------------
+
+## Sostituisce le armi di una mano (e impugna la prima).
+func set_hand_items(hand: Weapon.Hand, scenes: Array[PackedScene]) -> void:
+	for old: Weapon in _slots[hand]:
+		old.queue_free()
+	var list: Array[Weapon] = []
+	for scene in scenes:
+		if scene == null:
+			continue
 		var weapon := scene.instantiate() as Weapon
 		if weapon == null:
 			push_error("Viewmodel: la scena %s non estende Weapon" % scene.resource_path)
 			continue
 		weapon.player = _player
+		weapon.hand = hand
 		weapon.visible = false
+		# Modellata per l'altra mano: specchiata.
+		weapon.scale = Vector3(-1, 1, 1) if weapon.native_hand != hand else Vector3.ONE
 		add_child(weapon)
 		_apply_style(weapon)
-		_weapons.append(weapon)
-	if not _weapons.is_empty():
-		switch_to(clampi(start_weapon, 0, _weapons.size() - 1))
+		list.append(weapon)
+	_slots[hand] = list
+	_index[hand] = 0
+	if not list.is_empty():
+		_equip(hand, list[0])
 
 
-## L'arma attualmente impugnata (null se nessuna).
-func current_weapon() -> Weapon:
-	return _current
+## L'arma impugnata da una mano (null se la mano è vuota).
+func item(hand: Weapon.Hand) -> Weapon:
+	if not _slots.has(hand):
+		return null
+	var list: Array = _slots[hand]
+	return list[_index[hand]] if not list.is_empty() else null
 
 
-## Tutte le armi, nell'ordine dei tasti 1-9 (per la HUD).
-func all_weapons() -> Array[Weapon]:
-	return _weapons
+## Tutte le armi di una mano, nell'ordine in cui si ciclano.
+func items(hand: Weapon.Hand) -> Array[Weapon]:
+	return _slots[hand]
 
 
-func switch_to(index: int) -> void:
-	if index < 0 or index >= _weapons.size() or _switching:
+func slot_index(hand: Weapon.Hand) -> int:
+	return _index[hand]
+
+
+## Impugna l'arma successiva della mano.
+func cycle(hand: Weapon.Hand) -> void:
+	var list: Array = _slots[hand]
+	if list.size() < 2 or _switching[hand] or _any_exclusive():
 		return
-	var next := _weapons[index]
-	if next == _current or (_current and not _current.can_switch()):
+	var current := item(hand)
+	if current and not current.can_switch():
 		return
-	_switching = true
-	if _current:
-		await _current.unequip()
-	_current = next
-	await _current.equip()
-	_switching = false
+	_switching[hand] = true
+	if current:
+		await current.unequip()
+	_index[hand] = (_index[hand] + 1) % list.size()
+	await _equip(hand, list[_index[hand]])
+	_switching[hand] = false
 
 
-func cycle(step: int) -> void:
-	if _weapons.size() < 2:
-		return
-	var index := _weapons.find(_current)
-	switch_to(posmod(index + step, _weapons.size()))
+func _equip(hand: Weapon.Hand, weapon: Weapon) -> void:
+	hand_changed.emit(hand, weapon)
+	await weapon.equip()
 
+
+# --- Difesa (chiamate dal player quando viene colpito) ----------------------
+
+## Chiede alle armi in mano se parano il colpo: un parry vince su una parata.
+func defend(source_position: Vector3) -> Combat.HitResult:
+	var result := Combat.HitResult.HIT
+	for hand in [LEFT, RIGHT]:
+		var weapon := item(hand)
+		if weapon == null:
+			continue
+		var r := weapon.defend(source_position)
+		if r == Combat.HitResult.PARRIED:
+			return r
+		if r == Combat.HitResult.BLOCKED:
+			result = r
+	return result
+
+
+func is_invulnerable() -> bool:
+	for hand in [RIGHT, LEFT]:
+		var weapon := item(hand)
+		if weapon and weapon.is_invulnerable():
+			return true
+	return false
+
+
+# --- Input -----------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_visible_in_tree():
@@ -97,31 +164,66 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Col mouse libero il click serve solo a ricatturarlo (lo gestisce player.gd).
 	if event is InputEventMouseButton and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
-	if event.is_action_pressed("weapon_next"):
-		cycle(1)
-	elif event.is_action_pressed("weapon_prev"):
-		cycle(-1)
-	for i in mini(_weapons.size(), 9):
-		if event.is_action_pressed("weapon_%d" % (i + 1)):
-			switch_to(i)
-
-	if _current == null or _switching:
-		return
-	if event.is_action_pressed("attack"):
-		_current.primary_pressed()
-	elif event.is_action_released("attack"):
-		_current.primary_released()
-	elif event.is_action_pressed("block"):
-		_current.secondary_pressed()
-	elif event.is_action_released("block"):
-		_current.secondary_released()
+	if event.is_action_pressed("cycle_right"):
+		cycle(RIGHT)
+	elif event.is_action_pressed("cycle_left"):
+		cycle(LEFT)
+	elif event.is_action("attack"):
+		_use(RIGHT, event.is_pressed())
+	elif event.is_action("block"):
+		_use(LEFT, event.is_pressed())
 	elif event.is_action_pressed("parry"):
-		_current.parry_pressed()
+		for hand in [LEFT, RIGHT]:
+			var weapon := _usable(hand)
+			if weapon and weapon.can_parry():
+				weapon.parry_pressed()
+				break
 	elif event.is_action_pressed("next_mode"):
-		_current.next_mode_pressed()
+		# Va alla prima mano con più modalità (es. un bastone), la destra prima.
+		for hand in [RIGHT, LEFT]:
+			var weapon := _usable(hand)
+			if weapon and weapon.hud_info().has("spell"):
+				weapon.next_mode_pressed()
+				break
+
+
+func _use(hand: Weapon.Hand, pressed: bool) -> void:
+	var weapon := _usable(hand)
+	if weapon == null:
+		return
+	if pressed:
+		weapon.use_pressed()
+	else:
+		weapon.use_released()
+
+
+## L'arma della mano, se in questo momento può ricevere input.
+func _usable(hand: Weapon.Hand) -> Weapon:
+	var weapon := item(hand)
+	if weapon == null or _switching[hand]:
+		return null
+	var other := item(LEFT if hand == RIGHT else RIGHT)
+	if other and other.is_exclusive():
+		return null
+	return weapon
+
+
+func _any_exclusive() -> bool:
+	for hand in [RIGHT, LEFT]:
+		var weapon := item(hand)
+		if weapon and weapon.is_exclusive():
+			return true
+	return false
 
 
 func _process(delta: float) -> void:
+	# Se una mano fa un'azione ampia (fendente, critico), l'altra si abbassa per lasciarle spazio.
+	var right := item(RIGHT)
+	var left := item(LEFT)
+	if right and left:
+		left.set_lowered(right.wants_other_hand_lowered())
+		right.set_lowered(left.wants_other_hand_lowered())
+
 	_idle_time += delta
 	var velocity := _player.velocity if _player else Vector3.ZERO
 	var grounded := _player != null and _player.is_on_floor()

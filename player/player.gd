@@ -14,6 +14,7 @@ extends CharacterBody3D
 signal health_changed(health: float, max_health: float)
 signal died
 signal mana_changed(mana: float, max_mana: float)
+signal spell_learned(spell: Spell)
 
 ## Scala del progetto: 1 unità = 1 metro.
 @export_group("Size")
@@ -91,6 +92,8 @@ signal mana_changed(mana: float, max_mana: float)
 
 @export_group("Mana")
 @export var max_mana := 100.0
+## Incantesimi conosciuti (id): valgono per tutti i bastoni, in qualunque mano.
+@export var known_spells: Array[StringName] = [&"magic_shard"]
 ## Mana recuperato al secondo.
 @export var mana_regen := 9.0
 ## Secondi dopo l'ultimo incantesimo prima che il mana inizi a ricaricarsi.
@@ -288,17 +291,16 @@ func _can_stand() -> bool:
 
 # --- Vita e danno ---------------------------------------------------------
 
-## Chiamato da chi attacca il player. L'arma in mano può parare o fare parry.
+## Chiamato da chi attacca il player. Le armi in mano possono parare o fare parry.
 func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 	if _dead:
 		return Combat.HitResult.IGNORED
 	var result := Combat.HitResult.HIT
-	var weapon: Weapon = _viewmodel.current_weapon()
 	# Invincibile durante i colpi critici (comandi bloccati) e subito dopo un parry.
-	if _locked_time > 0.0 or (weapon and weapon.is_invulnerable()):
+	if _locked_time > 0.0 or _viewmodel.is_invulnerable():
 		return Combat.HitResult.IGNORED
-	if weapon and source:
-		result = weapon.defend(source.global_position)
+	if source:
+		result = _viewmodel.defend(source.global_position)
 
 	match result:
 		Combat.HitResult.PARRIED:
@@ -321,6 +323,18 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 	if health <= 0.0:
 		_die()
 	return result
+
+
+## Impara un incantesimo (es. raccogliendo un tomo): da quel momento ogni bastone può lanciarlo.
+func learn_spell(spell: Spell) -> void:
+	if spell == null or known_spells.has(spell.id):
+		return
+	known_spells.append(spell.id)
+	spell_learned.emit(spell)
+
+
+func knows_spell(id: StringName) -> bool:
+	return known_spells.has(id)
 
 
 ## Spende mana: false (e niente speso) se non basta.
@@ -346,13 +360,18 @@ func _update_mana(delta: float) -> void:
 		mana_changed.emit(mana, max_mana)
 
 
-## Per la HUD: l'arma in mano, tutte le armi e le cariche del dash.
-func current_weapon() -> Weapon:
-	return _viewmodel.current_weapon()
+## Per la HUD e per il resto del gioco: l'arma in una mano e tutte le armi di una mano.
+func hand_item(hand: Weapon.Hand) -> Weapon:
+	return _viewmodel.item(hand)
 
 
-func all_weapons() -> Array[Weapon]:
-	return _viewmodel.all_weapons()
+func hand_items(hand: Weapon.Hand) -> Array[Weapon]:
+	return _viewmodel.items(hand)
+
+
+## Il viewmodel (le due mani): per cambiare equipaggiamento usa _viewmodel.set_hand_items().
+func viewmodel() -> Node3D:
+	return _viewmodel
 
 
 func dash_charges() -> float:
@@ -612,10 +631,8 @@ func _register_input_actions() -> void:
 	_add_action("block", [_mouse(MOUSE_BUTTON_RIGHT), _axis(JOY_AXIS_TRIGGER_LEFT, 1.0)])
 	_add_action("parry", [_key(KEY_F), _mouse(MOUSE_BUTTON_XBUTTON1), _button(JOY_BUTTON_RIGHT_SHOULDER)])
 	_add_action("next_mode", [_key(KEY_R), _button(JOY_BUTTON_X)])
-	_add_action("weapon_next", [_mouse(MOUSE_BUTTON_WHEEL_DOWN), _button(JOY_BUTTON_Y)])
-	_add_action("weapon_prev", [_mouse(MOUSE_BUTTON_WHEEL_UP)])
-	for i in 9:
-		_add_action("weapon_%d" % (i + 1), [_key((KEY_1 + i) as Key)])
+	_add_action("cycle_right", [_key(KEY_E), _mouse(MOUSE_BUTTON_WHEEL_DOWN), _button(JOY_BUTTON_DPAD_RIGHT)])
+	_add_action("cycle_left", [_key(KEY_Q), _mouse(MOUSE_BUTTON_WHEEL_UP), _button(JOY_BUTTON_DPAD_LEFT)])
 
 
 func _add_action(action: StringName, events: Array[InputEvent]) -> void:
