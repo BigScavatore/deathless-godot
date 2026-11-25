@@ -368,6 +368,28 @@ def snd_equip(rng):
     return dirty(fade_out(x), rng, drive=2.5)
 
 
+def snd_gore_burst(rng):
+    """Nemico che esplode: schiocco umido, carne che si squarcia, schizzi che ricadono."""
+    d = 1.0
+    n = int(d * SR)
+    t = np.arange(n) / SR
+    x = 1.6 * thud(rng, d, 130, 38, 0.12)
+    x += 1.2 * svf(white(rng, n), np.linspace(1800, 250, n), 1.2, "low") * env_exp(n, 0.07)
+    x += 1.5 * svf(white(rng, n), 650 * np.exp(-t / 0.15) + 140, 8.0, "band") * env_exp(n, 0.25, attack=0.01)
+    x += 1.0 * grains(rng, d, 110, length=0.008, cutoff=1000, decay=0.3)
+    return dirty(fade_out(x, 0.08), rng, drive=4.0, wet=0.25)
+
+
+def snd_gib_splat(rng):
+    """Pezzo di carne che cade a terra."""
+    d = 0.3
+    n = int(d * SR)
+    x = thud(rng, d, 170, 60, 0.04)
+    x += 1.2 * svf(white(rng, n), np.linspace(900, 250, n), 4.0, "band") * env_exp(n, 0.06)
+    x += 0.6 * grains(rng, d, 20, length=0.006, cutoff=900, decay=0.05)
+    return dirty(fade_out(x), rng, drive=3.0)
+
+
 SOUNDS = {  # nome: (funzione, varianti)
     "swing": (snd_swing, 3),
     "swing_heavy": (snd_swing_heavy, 2),
@@ -388,6 +410,8 @@ SOUNDS = {  # nome: (funzione, varianti)
     "slam_dive": (snd_slam_dive, 1),
     "slam_impact": (snd_slam_impact, 2),
     "equip": (snd_equip, 1),
+    "gore_burst": (snd_gore_burst, 3),   # in fondo: i seed degli altri suoni non cambiano
+    "gib_splat": (snd_gib_splat, 3),
 }
 
 
