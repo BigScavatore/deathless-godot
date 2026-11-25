@@ -6,7 +6,7 @@ Uso:
     python tools/generate_viewmodel.py                       # scrive assets/models/viewmodel.glb
     python tools/generate_viewmodel.py --preview anteprima.png   # + anteprima dal punto di vista del player
 
-Stile (ispirato a DUSK): pochi poligoni, texture piccole e pixelate (atlas 3x3 da 128 px,
+Stile (ispirato a DUSK): pochi poligoni, texture piccole e pixelate (atlas 3x3 da 256 px,
 palette posterizzata, ruggine, graffi, vernice scrostata), campionate senza filtro (nearest).
 Le texture sono generate qui, in modo deterministico: modifica le funzioni tile_* per cambiarle.
 
@@ -29,16 +29,17 @@ from pathlib import Path
 
 import numpy as np
 
-from generate_knight import box, cyl, flat_normals, mat_to_quat, node, place, rot_matrix, taper
+from generate_knight import _orient, box, cyl, flat_normals, mat_to_quat, node, place, rot_matrix, taper
 
 # ---------------------------------------------------------------------------
 # Atlas delle texture
 # ---------------------------------------------------------------------------
-TILE = 128          # pixel per tile
+TILE = 256          # pixel per tile
+S = TILE // 128     # scala dei dettagli (le funzioni tile_* sono pensate per 128 px)
 COLS, ROWS = 3, 3
 ATLAS_W, ATLAS_H = COLS * TILE, ROWS * TILE
-DENSITY = 150.0     # texel per metro (1 tile = ~0.85 m): pixel grossi e uniformi su tutto il modello
-LEVELS = 14         # livelli per canale: palette posterizzata
+DENSITY = 300.0     # texel per metro (1 tile = ~0.85 m): pixel ancora visibili ma meno grossolani
+LEVELS = 16         # livelli per canale: palette posterizzata
 
 TILE_NAMES = ["iron", "steel", "leather", "brass", "wood_paint", "rust", "wood"]
 
@@ -49,8 +50,9 @@ def _blocks(rng, cell):
 
 
 def _fbm(rng):
-    """Rumore a blocchi su 3 scale, valori in [0, 1]."""
-    return 0.5 * _blocks(rng, 32) + 0.3 * _blocks(rng, 8) + 0.2 * _blocks(rng, 2)
+    """Rumore a blocchi su 4 scale, valori in [0, 1]."""
+    return (0.45 * _blocks(rng, 32 * S) + 0.27 * _blocks(rng, 8 * S)
+            + 0.18 * _blocks(rng, 2 * S) + 0.10 * _blocks(rng, 1))
 
 
 def _base(rng, color, amount):
@@ -62,6 +64,7 @@ def _base(rng, color, amount):
 
 
 def _scratches(img, rng, count, length, delta, angles=(0.0, math.pi)):
+    count, length = count * S * S, (length[0] * S, length[1] * S)
     for _ in range(count):
         x, y = rng.random() * TILE, rng.random() * TILE
         a = rng.uniform(*angles)
@@ -70,6 +73,7 @@ def _scratches(img, rng, count, length, delta, angles=(0.0, math.pi)):
 
 
 def _specks(img, rng, count, delta):
+    count *= S * S
     ys, xs = rng.integers(0, TILE, count), rng.integers(0, TILE, count)
     img[ys, xs] += delta
 
@@ -101,9 +105,9 @@ def tile_steel(rng):
 def tile_leather(rng):
     img = _base(rng, (0.21, 0.14, 0.10), 0.5)
     _scratches(img, rng, 70, (6, 18), -0.07)                          # crepe
-    for y in (10, 118):                                               # cuciture
-        for x in range(0, TILE, 8):
-            img[y:y + 2, x:x + 4] = (0.45, 0.38, 0.28)
+    for y in (10 * S, TILE - 10 * S):                                 # cuciture
+        for x in range(0, TILE, 8 * S):
+            img[y:y + 2 * S, x:x + 4 * S] = (0.45, 0.38, 0.28)
     _specks(img, rng, 60, 0.08)
     return img
 
@@ -119,10 +123,10 @@ def tile_brass(rng):
 def tile_wood_paint(rng):
     img = _base(rng, (0.30, 0.09, 0.08), 0.4)                         # vernice rossa sporca
     n = _fbm(rng)
-    grain = 0.5 + 0.5 * np.sin(np.arange(TILE)[None, :] * 0.8 + n * 8.0)
+    grain = 0.5 + 0.5 * np.sin(np.arange(TILE)[None, :] * 0.8 / S + n * 8.0)
     img *= (0.8 + 0.25 * grain)[..., None]
-    for x in range(0, TILE, 32):                                      # giunture tra le assi
-        img[:, x:x + 2] = (0.08, 0.05, 0.04)
+    for x in range(0, TILE, 32 * S):                                  # giunture tra le assi
+        img[:, x:x + S] = (0.08, 0.05, 0.04)
     chips = _fbm(rng) > 0.64                                          # vernice scrostata: legno a vista
     img[chips] = np.array((0.40, 0.28, 0.17)) * (0.7 + 0.5 * grain[chips])[:, None]
     _scratches(img, rng, 30, (8, 30), 0.08)
@@ -133,10 +137,10 @@ def tile_wood_paint(rng):
 def tile_wood(rng):
     img = _base(rng, (0.24, 0.17, 0.11), 0.45)
     n = _fbm(rng)
-    grain = 0.5 + 0.5 * np.sin(np.arange(TILE)[None, :] * 0.9 + n * 8.0)
+    grain = 0.5 + 0.5 * np.sin(np.arange(TILE)[None, :] * 0.9 / S + n * 8.0)
     img *= (0.75 + 0.30 * grain)[..., None]
-    for x in range(0, TILE, 32):
-        img[:, x:x + 2] = (0.06, 0.04, 0.03)
+    for x in range(0, TILE, 32 * S):
+        img[:, x:x + S] = (0.06, 0.04, 0.03)
     _scratches(img, rng, 35, (8, 30), 0.07)
     _specks(img, rng, 80, -0.09)
     return img
@@ -224,21 +228,49 @@ SHIELD_POS = (-0.04, 0.13, -0.42)           # centro del brocchiero, relativo al
 SHIELD_ROT = (15, 30, 0)                   # retro (maniglia) verso il player, girato verso il centro
 
 
+def loft(bottom, top, h, base=(0.0, 0.0, 0.0)):
+    """Prisma convesso lungo +Y tra due poligoni nel piano XZ (stesso numero di punti, stesso verso).
+    Un poligono con tutti i punti uguali diventa una punta."""
+    b = [np.array((x, 0.0, z)) for x, z in bottom]
+    t = [np.array((x, h, z)) for x, z in top]
+    cb, ct = sum(b) / len(b), sum(t) / len(t)
+    tris = []
+    for i in range(len(b)):
+        j = (i + 1) % len(b)
+        tris += [[b[i], b[j], t[j]], [b[i], t[j], t[i]], [cb, b[j], b[i]], [ct, t[i], t[j]]]
+    return _orient(np.array(tris) + np.array(base, dtype=float))
+
+
+def blade_section(width, thick):
+    """Sezione della lama: esagono schiacciato (filo smussato + costola centrale)."""
+    w, t = width / 2, thick / 2
+    return [(w, 0.0), (w * 0.45, t), (-w * 0.45, t), (-w, 0.0), (-w * 0.45, -t), (w * 0.45, -t)]
+
+
 def build_sword():
     # Claymore. Asse dell'impugnatura = +Y, mano all'origine, la lama punta verso +Y.
     # Impugnatura lunga (a due mani), guardia con bracci inclinati verso la lama e terminali a quadrifoglio.
     parts = [
-        (jitter(cyl(0.040, 0.034, 0.06, seg=6, base=(0, -0.33, 0)), 0.002, 1), "rust"),    # pomolo
-        (cyl(0.022, 0.020, 0.30, seg=6, base=(0, -0.27, 0)), "leather"),                    # impugnatura lunga
-        (cyl(0.025, 0.025, 0.02, seg=6, base=(0, -0.16, 0)), "iron"),                       # anello sull'impugnatura
+        (jitter(cyl(0.040, 0.034, 0.06, seg=10, base=(0, -0.33, 0)), 0.002, 1), "rust"),   # pomolo
+        (cyl(0.030, 0.040, 0.012, seg=10, base=(0, -0.272, 0)), "iron"),                    # collare del pomolo
+        (cyl(0.025, 0.025, 0.02, seg=10, base=(0, -0.16, 0)), "iron"),                      # anello sull'impugnatura
+        (cyl(0.026, 0.030, 0.02, seg=10, base=(0, 0.04, 0)), "iron"),                       # ghiera sotto la guardia
         (box((0.09, 0.034, 0.05), (0, 0.075, 0)), "iron"),                                  # centro guardia
         (box((0.05, 0.05, 0.016), (0, 0.11, 0)), "iron"),                                   # langet
     ]
+    # Impugnatura fasciata: anelli di cuoio leggermente bombati
+    y = -0.26
+    for i in range(10):
+        r = 0.021 + 0.0025 * (i % 2)
+        parts.append((cyl(r, r, 0.03, seg=10, base=(0, y, 0), phase=18 * i), "leather"))
+        y += 0.03
     for side, mat in [(1, "rust"), (-1, "iron")]:
         arm_rot = (0, 0, 24 * side)                                                         # bracci verso la lama
-        parts.append((place(box((0.15, 0.028, 0.040)), pos=(0.105 * side, 0.105, 0), rot=arm_rot), mat))
+        arm = place(cyl(0.017, 0.014, 0.15, seg=8), pos=(0.035 * side, 0.075, 0), rot=(0, 0, -90 * side + 24 * side))
+        parts.append((arm, mat))
         for dx, dy in [(0, 0), (0.022, 0), (0, 0.022), (0.011, 0.011)]:                     # quadrifoglio
-            parts.append((box((0.026, 0.026, 0.036), (side * (0.175 + dx), 0.135 + dy, 0)), "iron"))
+            parts.append((place(cyl(0.015, 0.015, 0.034, seg=8), pos=(side * (0.175 + dx), 0.135 + dy, -0.017),
+                                rot=(90, 0, 0)), "iron"))
     # Lama larga e lunga a segmenti con tacche e scheggiature (ogni segmento è convesso)
     segments = [  # (lunghezza, largh. base, largh. cima, spess. base, spess. cima)
         (0.12, 0.080, 0.078, 0.018, 0.017),
@@ -252,15 +284,15 @@ def build_sword():
     ]
     y = 0.13
     for i, (length, wb, wt, tb, tt) in enumerate(segments):
-        seg = taper((wb, tb), (wt, tt), length, base=(0, y, 0))
-        parts.append((jitter(seg, 0.0012, 10 + i), "steel"))
+        seg = loft(blade_section(wb, tb), blade_section(wt, tt), length, base=(0, y, 0))
+        parts.append((jitter(seg, 0.0010, 10 + i), "steel"))
         y += length
-    tip = place(taper((0.050, 0.011), (0.0, 0.0), 0.12), pos=(0, y, 0), rot=(0, 0, 4))  # punta storta
+    tip = place(loft(blade_section(0.050, 0.011), [(0.0, 0.0)] * 6, 0.12), pos=(0, y, 0), rot=(0, 0, 4))  # punta storta
     parts.append((tip, "steel"))
     return node("Sword", pos=SWORD_WRIST, rot=SWORD_ROT, parts=parts)
 
 
-def ring(radius, size, z, mat, seg=12, seed=0):
+def ring(radius, size, z, mat, seg=24, seed=0):
     """Anello di blocchetti (ogni pezzo è convesso) nel piano XY, centrato in (0, 0, z)."""
     width = 2 * math.pi * radius / seg * 1.08
     out = []
@@ -268,11 +300,11 @@ def ring(radius, size, z, mat, seg=12, seed=0):
         ang = 360.0 * i / seg
         a = math.radians(ang)
         piece = place(box((width, size[0], size[1])), pos=(radius * -math.sin(a), radius * math.cos(a), z), rot=(0, 0, ang))
-        out.append((jitter(piece, 0.002, seed + i), mat if i % 4 else "rust"))
+        out.append((jitter(piece, 0.002, seed + i), mat if i % 6 else "rust"))
     return out
 
 
-def disc(radius, thickness, z, seg=12):
+def disc(radius, thickness, z, seg=24):
     """Disco nel piano XY (spessore lungo Z), centrato in (0, 0, z)."""
     return place(cyl(radius, radius, thickness, seg=seg, base=(0, -thickness / 2, 0), phase=0), pos=(0, 0, z), rot=(-90, 0, 0))
 
@@ -283,17 +315,19 @@ def build_shield():
     parts = [
         (disc(0.165, 0.028, 0.0), "wood_paint"),                                   # corpo (vernice scrostata)
         (disc(0.150, 0.006, 0.017), "wood"),                                       # retro in legno grezzo
-        (disc(0.095, 0.012, -0.018, seg=10), "iron"),                              # piastra dell'umbone
-        (place(cyl(0.070, 0.026, 0.065, seg=10), pos=(0, 0, -0.02), rot=(-90, 0, 0)), "rust"),   # umbone
-        (place(cyl(0.026, 0.0, 0.025, seg=6), pos=(0, 0, -0.084), rot=(-90, 0, 0)), "iron"),     # punta dell'umbone
+        (disc(0.095, 0.012, -0.018, seg=16), "iron"),                              # piastra dell'umbone
+        (place(cyl(0.070, 0.055, 0.030, seg=16), pos=(0, 0, -0.02), rot=(-90, 0, 0)), "rust"),   # umbone (cupola a 2 anelli)
+        (place(cyl(0.055, 0.026, 0.035, seg=16), pos=(0, 0, -0.05), rot=(-90, 0, 0)), "rust"),
+        (place(cyl(0.026, 0.0, 0.025, seg=10), pos=(0, 0, -0.084), rot=(-90, 0, 0)), "iron"),    # punta dell'umbone
         (box((0.11, 0.026, 0.026), (0, 0, 0.052)), "leather"),                     # maniglia
         (box((0.024, 0.03, 0.03), (0.055, 0, 0.034)), "iron"),                     # attacchi della maniglia
         (box((0.024, 0.03, 0.03), (-0.055, 0, 0.034)), "iron"),
     ]
     parts += ring(0.163, (0.026, 0.042), 0.0, "iron", seed=200)                    # bordo in ferro
-    for i in range(8):                                                              # borchie
+    for i in range(8):                                                              # borchie (a cupola)
         a = math.radians(22.5 + 45 * i)
-        parts.append((box((0.02, 0.02, 0.012), (0.125 * math.cos(a), 0.125 * math.sin(a), -0.019)), "brass"))
+        stud = place(cyl(0.011, 0.005, 0.009, seg=8), pos=(0.125 * math.cos(a), 0.125 * math.sin(a), -0.013), rot=(-90, 0, 0))
+        parts.append((stud, "brass"))
     parts = [(jitter(t, 0.0015, 100 + i), m) for i, (t, m) in enumerate(parts)]
     return node("Shield", pos=SHIELD_POS, rot=SHIELD_ROT, parts=parts)
 
@@ -474,7 +508,7 @@ def render_preview(root, atlas, path):
     axes[0].set_title("Vista del player (FOV 90, 16:9)", color="#ccd")
     axes[0].plot([480], [270], "+", color="#ffffff", alpha=0.5, ms=10)
     axes[1].imshow(atlas, interpolation="nearest")
-    axes[1].set_title("Atlas texture (128 px per tile)", color="#ccd")
+    axes[1].set_title(f"Atlas texture ({TILE} px per tile)", color="#ccd")
     for ax in axes:
         ax.axis("off")
     fig.tight_layout()

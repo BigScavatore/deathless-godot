@@ -4,6 +4,7 @@ extends CanvasLayer
 var _health_bar: ProgressBar
 var _damage_flash: ColorRect
 var _parry_label: Label
+var _parry_flash: ColorRect
 
 
 func _ready() -> void:
@@ -12,6 +13,12 @@ func _ready() -> void:
 	_damage_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_damage_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_damage_flash)
+
+	_parry_flash = ColorRect.new()
+	_parry_flash.color = Color(1.0, 0.92, 0.7, 0.0)
+	_parry_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_parry_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_parry_flash)
 
 	var crosshair := ColorRect.new()
 	crosshair.color = Color(1, 1, 1, 0.7)
@@ -67,9 +74,14 @@ func flash_damage(strength: float) -> void:
 
 
 func flash_parry() -> void:
+	# Lampo chiaro a tutto schermo + scritta che "esplode" e si ritira.
+	_parry_flash.color.a = 0.35
+	_tween().tween_property(_parry_flash, "color:a", 0.0, 0.3).set_ease(Tween.EASE_OUT)
 	_parry_label.modulate.a = 1.0
-	_parry_label.scale = Vector2.ONE
+	_parry_label.pivot_offset = _parry_label.size / 2.0
+	_parry_label.scale = Vector2.ONE * 1.6
 	var tween := _tween()
+	tween.tween_property(_parry_label, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_interval(0.25)
 	tween.tween_property(_parry_label, "modulate:a", 0.0, 0.35)
 

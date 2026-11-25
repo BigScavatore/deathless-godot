@@ -1,6 +1,8 @@
 extends Weapon
 ## Claymore e brocchiero.
-##   click sinistro            = fendente orizzontale (colpisce ciò che è davanti alla camera)
+##   click sinistro            = fendente orizzontale (colpisce ciò che è davanti alla camera).
+##                               I colpi in sequenza alternano dritto (destra->sinistra) e rovescio
+##                               (sinistra->destra); dopo una pausa si riparte dal dritto.
 ##   click destro (tenuto)     = parata frontale: il danno è ridotto
 ##   F / tasto laterale / RB   = parry: un colpo di brocchiero in avanti. Se un attacco arriva
 ##                               entro "parry_window" secondi, nessun danno e il nemico resta stordito
@@ -10,7 +12,7 @@ extends Weapon
 ##     - backstab: alle spalle di un nemico -> pugnalata alla schiena
 ## Le pose sono nell'AnimationPlayer della scena: modificale dall'editor (pannello Animazione).
 
-## Emesso nel frame d'impatto del fendente (chiave "method" nell'animazione "slash").
+## Emesso nel frame d'impatto del fendente (chiave "method" nelle animazioni "slash"/"slash_back").
 signal slash_hit
 signal parried
 signal critical_hit(target: Node3D, kind: StringName)
@@ -21,6 +23,8 @@ signal critical_hit(target: Node3D, kind: StringName)
 @export var slash_reach := 2.8
 ## Larghezza e altezza del box del fendente.
 @export var slash_size := Vector2(2.6, 1.4)
+## Se passa più di questo tempo (secondi) dalla fine di un fendente, la combo riparte dal dritto.
+@export var combo_reset := 0.6
 
 @export_group("Critical")
 @export var riposte_damage := 120.0
@@ -53,6 +57,9 @@ var _parry_ready_at := 0
 var _invulnerable_until := 0
 var _critical_target: Node3D
 var _critical_kind := &""
+## 0 = dritto ("slash"), 1 = rovescio ("slash_back").
+var _combo_step := 0
+var _last_slash_end := 0
 
 
 func _ready() -> void:
@@ -126,6 +133,7 @@ func defend(source_position: Vector3) -> Combat.HitResult:
 		_invulnerable_until = Time.get_ticks_msec() + int(parry_invulnerability * 1000.0)
 		parried.emit()
 		Sfx.play(self, &"parry", 0.0, 0.05)
+		_play_from_start(&"parry_hit")
 		return Combat.HitResult.PARRIED
 	if is_blocking:
 		_play_from_start(&"block_hit")
@@ -135,7 +143,10 @@ func defend(source_position: Vector3) -> Combat.HitResult:
 
 
 func _slash() -> void:
-	_play_from_start(&"slash")
+	if Time.get_ticks_msec() - _last_slash_end > int(combo_reset * 1000.0):
+		_combo_step = 0
+	_play_from_start(&"slash_back" if _combo_step == 1 else &"slash")
+	_combo_step = 1 - _combo_step
 	Sfx.play(self, &"swing", -3.0, 0.1)
 
 
@@ -150,11 +161,11 @@ func _play_from_start(anim_name: StringName) -> void:
 
 
 func _is_slashing() -> bool:
-	return anim.is_playing() and anim.current_animation == &"slash"
+	return anim.is_playing() and (anim.current_animation == &"slash" or anim.current_animation == &"slash_back")
 
 
 func _is_parrying() -> bool:
-	return anim.is_playing() and anim.current_animation == &"parry"
+	return anim.is_playing() and (anim.current_animation == &"parry" or anim.current_animation == &"parry_hit")
 
 
 func _is_critical() -> bool:
@@ -242,7 +253,8 @@ func _is_frontal(source_position: Vector3) -> bool:
 
 func _on_animation_finished(anim_name: StringName) -> void:
 	match anim_name:
-		&"slash":
+		&"slash", &"slash_back":
+			_last_slash_end = Time.get_ticks_msec()
 			if _attack_queued and not _wants_block:
 				_attack_queued = false
 				_slash()
@@ -253,7 +265,7 @@ func _on_animation_finished(anim_name: StringName) -> void:
 			_critical_target = null
 			if _wants_block:
 				_start_block()
-		&"parry":
+		&"parry", &"parry_hit":
 			# Dopo il colpo di brocchiero: attacco in coda (es. riposte) oppure torna in parata.
 			if _attack_queued:
 				_attack_queued = false
@@ -265,7 +277,7 @@ func _on_animation_finished(anim_name: StringName) -> void:
 				is_blocking = false
 
 
-# Chiamato dall'animazione "slash" (traccia metodo) nel frame dell'impatto.
+# Chiamato dalle animazioni "slash"/"slash_back" (traccia metodo) nel frame dell'impatto.
 func _on_slash_hit() -> void:
 	var camera := get_viewport().get_camera_3d()
 	var space := get_world_3d().direct_space_state

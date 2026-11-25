@@ -289,8 +289,8 @@ func take_damage(amount: float, source: Node3D) -> Combat.HitResult:
 
 	match result:
 		Combat.HitResult.PARRIED:
-			Combat.hitstop(self, 0.12)
-			add_shake(0.35)
+			Combat.hitstop(self, 0.18)
+			add_shake(0.55)
 			_hud.flash_parry()
 			return result
 		Combat.HitResult.BLOCKED:
