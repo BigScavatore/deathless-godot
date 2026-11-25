@@ -169,6 +169,7 @@ _data = {
 [node name="Staff" type="Node3D"]
 script = ExtResource("1_script")
 display_name = "Bastone"
+kind = &"staff"
 equip_sound = &"equip"
 
 [node name="Model" parent="." instance=ExtResource("2_model")]

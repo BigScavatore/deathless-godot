@@ -213,6 +213,7 @@ _data = {
 [node name="Shield" type="Node3D"]
 script = ExtResource("1_script")
 display_name = "Brocchiero"
+kind = &"shield"
 native_hand = 1
 
 [node name="Model" parent="." instance=ExtResource("2_model")]

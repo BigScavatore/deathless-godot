@@ -1,33 +1,40 @@
 extends CanvasLayer
-## HUD in pixel art, nello stile del gioco: pannelli di ferro arrugginito con rivetti, barre a
-## segmenti, font bitmap (ui/pixel_font.gd). Tutto è disegnato da codice in un SubViewport a bassa
-## risoluzione (1 pixel della HUD = "pixel_scale" pixel dello schermo), poi ingrandito senza filtro:
-## così ogni elemento, anche le animazioni, resta allineato alla griglia dei pixel.
+## HUD sporca e consumata, nello stile del gioco: pannelli di ferro arrugginito con i bordi
+## scheggiati e i rivetti, barre con texture di sangue e di mana che scorrono, scritte con un font
+## serif con contorno. Tutto è disegnato da codice e le texture sono generate all'avvio
+## (nessun file da importare).
 ##
-##   in basso a sinistra   vita (con la parte persa che si svuota in ritardo), mana, cariche del dash
-##   in basso a destra     le due mani: arma impugnata, quante armi ha la mano e il tasto per cambiarla;
-##                         con un bastone anche incantesimo, costo e ricarica
-##   al centro             mirino (col bastone prende il colore dell'incantesimo), "PARRY", messaggi
+##   in basso a sinistra   vita (la parte persa si svuota in ritardo), mana, cariche del dash
+##   in basso a destra     le due mani: il modello 3D dell'arma che ruota, il nome, quante armi ha la
+##                         mano e il tasto per cambiarla; sotto un bastone l'incantesimo; in cima la
+##                         sinergia attiva tra le due armi (vedi player/weapons/synergies.gd)
+##   al centro             mirino (col bastone: rombo del colore dell'incantesimo e ricarica),
+##                         "PARRY", messaggi
 ##
 ## Il player chiama set_health(), flash_damage(), flash_parry() e show_message();
-## mana, dash e armi delle due mani vengono letti dal player a ogni frame (vedi _process).
+## mana, dash e armi vengono letti dal player a ogni frame (vedi _process).
 
-## Grandezza dei pixel della HUD (3 = a 1080p la HUD è disegnata a 640x360).
-@export_range(1, 8) var pixel_scale := 3
+const BONE := Color(0.84, 0.78, 0.66)
+const GOLD := Color(0.88, 0.68, 0.36)
+const DIM := Color(0.55, 0.5, 0.44)
+const BLOOD := Color(1.0, 0.92, 0.92)       # tinta sopra la texture del sangue (già rossa)
+const MANA := Color(0.95, 0.95, 1.0)        # tinta sopra la texture del mana (già viola)
+const GHOST := Color(0.78, 0.66, 0.5, 0.9)
+const DASH := Color(0.62, 0.8, 0.92)
+const BRASS := Color(0.5, 0.38, 0.18)
+const WARN := Color(1.0, 0.35, 0.28)
 
-const GOLD := Color(0.86, 0.66, 0.32)
-const BONE := Color(0.82, 0.76, 0.64)
-const DIM := Color(0.5, 0.45, 0.4)
-const BLOOD := Color(0.66, 0.07, 0.05)
-const MANA := Color(0.46, 0.32, 0.92)
-const GHOST := Color(0.92, 0.82, 0.62)
-const DASH := Color(0.62, 0.82, 0.95)
-const BRASS := Color(0.62, 0.48, 0.22)
+const RIGHT := Weapon.Hand.RIGHT
+const LEFT := Weapon.Hand.LEFT
 
 var _player: Node
 var _canvas: Control
-var _iron: ImageTexture
-var _icons := {}  # Spell -> ImageTexture
+var _font: Font
+var _panel_tex: ImageTexture
+var _blood_tex: ImageTexture
+var _mana_tex: ImageTexture
+var _vignette: GradientTexture2D
+var _previews := {}  # Weapon.Hand -> WeaponPreview
 
 var _health := 100.0
 var _max_health := 100.0
@@ -37,6 +44,7 @@ var _damage_flash := 0.0
 var _parry_flash := 0.0
 var _parry_time := -1.0
 var _message := ""
+var _message_sub := ""
 var _message_color := BONE
 var _message_time := 0.0
 var _clock := 0.0
@@ -46,27 +54,22 @@ var _connected := false
 
 func _ready() -> void:
 	_player = get_parent()
-	var container := SubViewportContainer.new()
-	container.stretch = true
-	container.stretch_shrink = pixel_scale
-	container.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	container.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(container)
-	var viewport := SubViewport.new()
-	viewport.transparent_bg = true
-	viewport.disable_3d = true
-	viewport.handle_input_locally = false
-	viewport.gui_disable_input = true
-	container.add_child(viewport)
 	var canvas := Canvas.new()
 	canvas.hud = self
 	_canvas = canvas
-	_canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_canvas.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	_canvas.set_anchors_preset(Control.PRESET_FULL_RECT)
-	viewport.add_child(_canvas)
-	_iron = _make_iron_texture()
+	add_child(_canvas)
+	_font = _make_font()
+	_panel_tex = _make_panel_texture()
+	_blood_tex = _make_bar_texture(Color(0.42, 0.03, 0.02), Color(0.75, 0.1, 0.06), 11)
+	_mana_tex = _make_bar_texture(Color(0.22, 0.12, 0.5), Color(0.55, 0.4, 0.98), 23)
+	_vignette = _make_vignette()
+	for hand in [RIGHT, LEFT]:
+		var preview := WeaponPreview.new()
+		add_child(preview)
+		_previews[hand] = preview
 	_last_ticks = Time.get_ticks_msec()
 
 
@@ -86,13 +89,14 @@ func flash_damage(strength: float) -> void:
 
 
 func flash_parry() -> void:
-	_parry_flash = 0.35
+	_parry_flash = 0.3
 	_parry_time = 0.0
 
 
-## Messaggio al centro dello schermo (es. "Hai ottenuto: Scheggia magica").
-func show_message(text: String, color := BONE, duration := 2.5) -> void:
+## Messaggio al centro dello schermo, con una riga più piccola sotto (facoltativa).
+func show_message(text: String, color := BONE, duration := 2.5, subtitle := "") -> void:
 	_message = text
+	_message_sub = subtitle
 	_message_color = color
 	_message_time = duration
 
@@ -123,7 +127,34 @@ func _process(_delta: float) -> void:
 		_player.spell_learned.connect(func(spell: Spell) -> void:
 			show_message("Nuovo incantesimo: " + spell.display_name, spell.color.lightened(0.3), 3.5)
 		)
+		var synergies := _synergies()
+		if synergies:
+			synergies.changed.connect(func(_s: StringName) -> void:
+				if synergies.active != &"":
+					show_message("Sinergia: " + synergies.display_name(), GOLD, 3.0, synergies.hint())
+			)
+
+	# Modelli che ruotano: aggiorna quello di ogni mano se l'arma è cambiata.
+	for hand in [RIGHT, LEFT]:
+		var preview: WeaponPreview = _previews[hand]
+		var weapon := _hand(hand)
+		if preview.shown != weapon:
+			preview.show_weapon(weapon)
 	_canvas.queue_redraw()
+
+
+func _hand(hand: Weapon.Hand) -> Weapon:
+	if _player and _player.has_method("hand_item"):
+		return _player.hand_item(hand)
+	return null
+
+
+func _synergies() -> Synergies:
+	if _player and _player.has_method("viewmodel"):
+		var vm: Node = _player.viewmodel()
+		if vm and "synergies" in vm:
+			return vm.synergies
+	return null
 
 
 # --- Disegno -----------------------------------------------------------------
@@ -137,8 +168,8 @@ class Canvas extends Control:
 
 func _draw_hud(ci: Control) -> void:
 	var size := ci.size
-	var right: Weapon = _hand(Weapon.Hand.RIGHT)
-	var left: Weapon = _hand(Weapon.Hand.LEFT)
+	var right := _hand(RIGHT)
+	var left := _hand(LEFT)
 	# Il mirino segue il primo bastone in mano (la destra prima).
 	var info: Dictionary = {}
 	for weapon in [right, left]:
@@ -147,241 +178,437 @@ func _draw_hud(ci: Control) -> void:
 			break
 
 	# Lampi a tutto schermo (danno, parry) e bordo rosso con poca vita.
-	if _damage_flash > 0.0:
-		ci.draw_rect(Rect2(Vector2.ZERO, size), Color(0.7, 0.0, 0.0, _damage_flash))
-	if _parry_flash > 0.0:
-		ci.draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 0.92, 0.7, _parry_flash))
 	var low := 1.0 - clampf(_health / maxf(_max_health, 1.0) / 0.3, 0.0, 1.0)
+	var red := _damage_flash * 1.4
 	if low > 0.0 and _health > 0.0:
-		var pulse := 0.6 + 0.4 * sin(_clock * 6.0)
-		for i in 8:
-			ci.draw_rect(Rect2(Vector2(i, i), size - Vector2(i, i) * 2.0), Color(0.6, 0.0, 0.0, low * pulse * 0.35 * (1.0 - i / 8.0)), false, 1.0)
+		red = maxf(red, low * (0.45 + 0.25 * sin(_clock * 6.0)))
+	if red > 0.0:
+		ci.draw_texture_rect(_vignette, Rect2(Vector2.ZERO, size), false, Color(0.55, 0.0, 0.0, clampf(red, 0.0, 1.0)))
+	if _damage_flash > 0.0:
+		ci.draw_rect(Rect2(Vector2.ZERO, size), Color(0.5, 0.0, 0.0, _damage_flash * 0.35))
+	if _parry_flash > 0.0:
+		ci.draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 0.9, 0.7, _parry_flash))
 
 	_draw_crosshair(ci, size, info)
 	_draw_vitals(ci, size)
 	_draw_hands(ci, size, right, left)
 
 	if _parry_time >= 0.0:
-		var big := 4 if _parry_time < 0.07 else 3
+		var pop := 1.0 + 0.5 * clampf(1.0 - _parry_time / 0.08, 0.0, 1.0)
 		var alpha := clampf((0.8 - _parry_time) / 0.3, 0.0, 1.0)
-		var w := PixelFont.width("PARRY") * big
-		PixelFont.draw_outlined(ci, Vector2(roundf((size.x - w) / 2.0), roundf(size.y * 0.27)), "PARRY",
-				Color(1.0, 0.85, 0.35, alpha), Color(0.1, 0.03, 0.0, alpha), big)
+		var center := Vector2(size.x / 2.0, size.y * 0.3)
+		ci.draw_set_transform(center, 0.0, Vector2.ONE * pop)
+		_text(ci, Vector2(-300, 20), "PARRY", 60, Color(1.0, 0.82, 0.4, alpha), HORIZONTAL_ALIGNMENT_CENTER, 600, 12)
+		ci.draw_set_transform(Vector2.ZERO)
 	if _message_time > 0.0:
 		var alpha := clampf(_message_time / 0.5, 0.0, 1.0)
-		var w := PixelFont.width(_message)
-		var pos := Vector2(roundf((size.x - w) / 2.0), roundf(size.y * 0.66))
-		ci.draw_rect(Rect2(pos - Vector2(4, 3), Vector2(w + 8, 13)), Color(0, 0, 0, 0.55 * alpha))
-		PixelFont.draw(ci, pos, _message, Color(_message_color, alpha))
+		var y := size.y * 0.66
+		var w := _font.get_string_size(_message, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+		_smudge(ci, Rect2(size.x / 2.0 - w / 2.0 - 50, y - 26, w + 100, 38 + (22 if _message_sub != "" else 0)), 0.55 * alpha)
+		_text(ci, Vector2(0, y), _message, 22, Color(_message_color, alpha), HORIZONTAL_ALIGNMENT_CENTER, size.x, 6)
+		if _message_sub != "":
+			_text(ci, Vector2(0, y + 22), _message_sub, 15, Color(BONE, alpha * 0.85), HORIZONTAL_ALIGNMENT_CENTER, size.x, 4)
 
 
 func _draw_crosshair(ci: Control, size: Vector2, info: Dictionary) -> void:
 	var c := (size / 2.0).floor()
 	var spell: Spell = info.get("spell")
 	if spell:
-		# Rombo del colore dell'incantesimo; spento se non c'è abbastanza mana.
+		# Rombo del colore dell'incantesimo (spento senza mana) e arco della ricarica.
 		var enough: bool = _player.mana >= spell.mana_cost
-		var col := spell.color.lightened(0.3) if enough else Color(0.4, 0.4, 0.45)
-		for p in [Vector2(0, -2), Vector2(-1, -1), Vector2(1, -1), Vector2(-2, 0), Vector2(2, 0), Vector2(-1, 1), Vector2(1, 1), Vector2(0, 2)]:
-			ci.draw_rect(Rect2(c + p + Vector2(1, 1), Vector2.ONE), Color(0, 0, 0, 0.7))
-			ci.draw_rect(Rect2(c + p, Vector2.ONE), col)
+		var col := spell.color.lightened(0.35) if enough else Color(0.45, 0.45, 0.5)
+		var d := PackedVector2Array([c + Vector2(0, -6), c + Vector2(6, 0), c + Vector2(0, 6), c + Vector2(-6, 0), c + Vector2(0, -6)])
+		ci.draw_polyline(d, Color(0, 0, 0, 0.75), 4.0)
+		ci.draw_polyline(d, col, 2.0)
 		var charge: float = info.get("ready", 1.0)
-		if charge < 1.0:  # ricarica: barretta sotto il mirino
-			ci.draw_rect(Rect2(c + Vector2(-3, 5), Vector2(7, 1)), Color(0, 0, 0, 0.6))
-			ci.draw_rect(Rect2(c + Vector2(-3, 5), Vector2(roundf(7 * charge), 1)), col)
+		if charge < 1.0:
+			ci.draw_arc(c, 13, -PI / 2, -PI / 2 + TAU * charge, 24, Color(0, 0, 0, 0.6), 4.0)
+			ci.draw_arc(c, 13, -PI / 2, -PI / 2 + TAU * charge, 24, col, 2.0)
 	else:
-		for r in [Rect2(-4, 0, 3, 1), Rect2(2, 0, 3, 1), Rect2(0, -4, 1, 3), Rect2(0, 2, 1, 3)]:
-			ci.draw_rect(Rect2(c + r.position + Vector2(1, 1), r.size), Color(0, 0, 0, 0.7))
-			ci.draw_rect(Rect2(c + r.position, r.size), Color(1, 1, 1, 0.85))
+		for r in [Rect2(-11, -1, 7, 2), Rect2(4, -1, 7, 2), Rect2(-1, -11, 2, 7), Rect2(-1, 4, 2, 7)]:
+			ci.draw_rect(Rect2(c + r.position - Vector2(1, 1), r.size + Vector2(2, 2)), Color(0, 0, 0, 0.7))
+			ci.draw_rect(Rect2(c + r.position, r.size), Color(0.92, 0.88, 0.8, 0.9))
 
 
 func _draw_vitals(ci: Control, size: Vector2) -> void:
-	var panel := Rect2(6, size.y - 40, 132, 34)
-	_draw_panel(ci, panel)
-	var x := panel.position.x + 6
-	var y := panel.position.y + 6
+	var panel := Rect2(18, size.y - 18 - 90, 330, 90)
+	_draw_panel(ci, panel, 1)
+	var x := panel.position.x + 18
 	var max_mana: float = _player.max_mana if _player else 100.0
 	var mana: float = _player.mana if _player else 0.0
+	var hp_color := BONE if _health > _max_health * 0.3 else WARN
 
-	PixelFont.draw(ci, Vector2(x, y), "VITA", BONE)
-	_draw_bar(ci, Rect2(x + 30, y, 70, 7), _health / maxf(_max_health, 1.0), _ghost / maxf(_max_health, 1.0), BLOOD)
-	PixelFont.draw(ci, Vector2(x + 104, y), "%3d" % ceili(_health), BONE if _health > _max_health * 0.3 else Color(1, 0.3, 0.25))
-	y += 12
-	PixelFont.draw(ci, Vector2(x, y), "MANA", BONE)
-	_draw_bar(ci, Rect2(x + 30, y, 70, 7), mana / maxf(max_mana, 1.0), 0.0, MANA)
-	PixelFont.draw(ci, Vector2(x + 104, y), "%3d" % floori(mana), BONE)
+	var y := panel.position.y + 20
+	_text(ci, Vector2(x, y + 13), "VITA", 15, DIM)
+	_draw_bar(ci, Rect2(x + 58, y, 190, 16), _health / maxf(_max_health, 1.0), _ghost / maxf(_max_health, 1.0), _blood_tex, BLOOD)
+	_text(ci, Vector2(x + 256, y + 14), str(ceili(_health)), 18, hp_color)
+	y += 34
+	_text(ci, Vector2(x, y + 13), "MANA", 15, DIM)
+	_draw_bar(ci, Rect2(x + 58, y, 190, 16), mana / maxf(max_mana, 1.0), 0.0, _mana_tex, MANA)
+	_text(ci, Vector2(x + 256, y + 14), str(floori(mana)), 18, BONE)
 
-	# Cariche del dash: tacche sopra il pannello.
+	# Cariche del dash: tacche inclinate sopra il pannello.
 	if _player and _player.has_method("dash_charges"):
 		var charges: float = _player.dash_charges()
 		var count: int = _player.dash_charges_max
 		for i in count:
-			var r := Rect2(panel.position.x + 2 + i * 13, panel.position.y - 7, 11, 3)
-			ci.draw_rect(r.grow(1), Color(0, 0, 0, 0.8))
-			ci.draw_rect(r, Color(0.12, 0.12, 0.14))
+			var p := Vector2(panel.position.x + 12 + i * 34, panel.position.y - 16)
+			var shape := PackedVector2Array([p + Vector2(4, 0), p + Vector2(30, 0), p + Vector2(26, 8), p + Vector2(0, 8)])
+			ci.draw_colored_polygon(shape, Color(0.05, 0.05, 0.06, 0.85))
 			var fill := clampf(charges - i, 0.0, 1.0)
 			if fill > 0.0:
-				ci.draw_rect(Rect2(r.position, Vector2(roundf(r.size.x * fill), r.size.y)), DASH if fill >= 1.0 else DASH.darkened(0.5))
+				var fw := 26.0 * fill
+				var f := PackedVector2Array([p + Vector2(4, 0), p + Vector2(4 + fw, 0), p + Vector2(fw, 8), p + Vector2(0, 8)])
+				ci.draw_colored_polygon(f, DASH if fill >= 1.0 else DASH.darkened(0.55))
+			ci.draw_polyline(shape + PackedVector2Array([shape[0]]), Color(0, 0, 0, 0.9), 1.5)
 
 
-func _hand(hand: Weapon.Hand) -> Weapon:
-	if _player and _player.has_method("hand_item"):
-		return _player.hand_item(hand)
-	return null
-
-
-## Pannello delle mani: una riga per mano ("DX" sopra, "SX" sotto) con l'arma, le tacche delle
-## armi disponibili in quella mano e il tasto per cambiarla. Sotto a un bastone, la riga dell'incantesimo.
+## Pannello delle mani: in cima l'eventuale sinergia, poi una riga per mano (destra sopra) con il
+## modello che ruota, il nome dell'arma, l'incantesimo se è un bastone, le armi della mano e il tasto.
 func _draw_hands(ci: Control, size: Vector2, right: Weapon, left: Weapon) -> void:
-	var rows := [[Weapon.Hand.RIGHT, right, "DX", "[E]"], [Weapon.Hand.LEFT, left, "SX", "[Q]"]]
-	# Larghezza e altezza in base al contenuto.
-	var width := 132
-	var height := 8
-	var has_shield := false
-	for row in rows:
-		var weapon: Weapon = row[1]
-		height += 11
-		if weapon == null:
-			continue
-		width = maxi(width, 30 + PixelFont.width(weapon.display_name) + 40)
-		var info := weapon.hud_info()
-		if info.has("spell") and info["spell"] != null:
-			height += 14
-			width = maxi(width, 30 + PixelFont.width((info["spell"] as Spell).display_name) + 44)
-		if weapon.can_parry():
-			has_shield = true
-	var panel := Rect2(size.x - 6 - width, size.y - 6 - height, width, height)
-	_draw_panel(ci, panel)
-	var x := panel.position.x + 6
-	var y := panel.position.y + 5
+	var synergies := _synergies()
+	var syn: Dictionary = synergies.hud_info() if synergies else {}
+	var row_h := 78.0
+	var width := 380.0
+	var height := 16.0 + row_h * 2.0 + (30.0 if not syn.is_empty() else 0.0)
+	var panel := Rect2(size.x - 18 - width, size.y - 18 - height, width, height)
+	_draw_panel(ci, panel, 2)
+	var x := panel.position.x + 14
+	var y := panel.position.y + 10
 
-	for row in rows:
+	if not syn.is_empty():
+		var col: Color = syn["color"]
+		_text(ci, Vector2(x + 2, y + 16), "SINERGIA", 12, DIM)
+		_text(ci, Vector2(x + 76, y + 16), String(syn["name"]).to_upper(), 15, col.lightened(0.4))
+		# Contatore (globi evocati o cariche): sfere che si accendono.
+		var max_count: int = syn["max"]
+		for i in max_count:
+			var center := Vector2(panel.end.x - 22 - (max_count - 1 - i) * 18, y + 11)
+			ci.draw_circle(center, 6.5, Color(0, 0, 0, 0.8))
+			if i < int(syn["count"]):
+				ci.draw_circle(center, 7.0 + 1.5 * sin(_clock * 6.0 + i), Color(col, 0.25))
+				ci.draw_circle(center, 5.0, col.lightened(0.2))
+				ci.draw_circle(center - Vector2(1.5, 1.5), 1.8, Color(1, 1, 1, 0.8))
+			else:
+				ci.draw_circle(center, 4.5, Color(0.15, 0.13, 0.12))
+		y += 30
+		ci.draw_line(Vector2(x, y - 4), Vector2(panel.end.x - 14, y - 4), Color(0, 0, 0, 0.6), 2.0)
+
+	var has_shield := false
+	for row in [[RIGHT, right, "MANO DESTRA", "E"], [LEFT, left, "MANO SINISTRA", "Q"]]:
 		var hand: Weapon.Hand = row[0]
 		var weapon: Weapon = row[1]
-		# Etichetta della mano.
-		var tag := Rect2(x, y - 1, 13, 9)
-		ci.draw_rect(tag.grow(1), Color(0, 0, 0, 0.9))
-		ci.draw_rect(tag, Color(0.25, 0.18, 0.08) if hand == Weapon.Hand.RIGHT else Color(0.12, 0.11, 0.13))
-		PixelFont.draw(ci, tag.position + Vector2(1, 1), row[2], GOLD if hand == Weapon.Hand.RIGHT else BONE, 1, Color(0, 0, 0, 0))
-		var label := weapon.display_name if weapon else "-"
-		PixelFont.draw(ci, Vector2(x + 18, y), label, GOLD if weapon else DIM)
-		# Tacche: quante armi ha la mano e quale è impugnata, poi il tasto per cambiarla.
-		var list: Array = _player.hand_items(hand) if _player and _player.has_method("hand_items") else []
-		var key_w := PixelFont.width(row[3])
-		var kx := panel.end.x - 6 - key_w
-		if list.size() > 1:
-			PixelFont.draw(ci, Vector2(kx, y), row[3], DIM)
-			for i in list.size():
-				var dot := Rect2(kx - 4 - (list.size() - i) * 5, y + 2, 3, 3)
-				ci.draw_rect(dot.grow(1), Color(0, 0, 0, 0.9))
-				ci.draw_rect(dot, GOLD if list[i] == weapon else Color(0.2, 0.18, 0.16))
-		y += 11
+		if weapon and weapon.can_parry():
+			has_shield = true
+		# Modello 3D che ruota, in una cornice scura.
+		var frame := Rect2(x, y + 4, 66, 66)
+		ci.draw_rect(frame.grow(2), Color(0, 0, 0, 0.85))
+		ci.draw_rect(frame, Color(0.04, 0.035, 0.03, 0.9))
+		if weapon:
+			var preview: WeaponPreview = _previews[hand]
+			ci.draw_texture_rect(preview.get_texture(), frame, false)
+		ci.draw_rect(frame, Color(0.35, 0.3, 0.24, 0.5), false, 1.0)
 
-		if weapon == null:
-			continue
-		var info := weapon.hud_info()
+		var tx := x + 80
+		_text(ci, Vector2(tx, y + 18), row[2], 11, DIM)
+		_text(ci, Vector2(tx, y + 40), weapon.display_name if weapon else "a mani nude", 19, GOLD if weapon else DIM)
+		# Tasto per cambiare arma e tacche delle armi di questa mano.
+		var list: Array = _player.hand_items(hand) if _player and _player.has_method("hand_items") else []
+		if list.size() > 1:
+			_text(ci, Vector2(panel.end.x - 44, y + 18), "[" + row[3] + "]", 13, DIM, HORIZONTAL_ALIGNMENT_RIGHT, 30)
+			for i in list.size():
+				var dot := Rect2(panel.end.x - 18 - (list.size() - i) * 11, y + 26, 7, 7)
+				ci.draw_rect(dot.grow(1), Color(0, 0, 0, 0.9))
+				ci.draw_rect(dot, GOLD if list[i] == weapon else Color(0.22, 0.19, 0.16))
+
+		var info: Dictionary = weapon.hud_info() if weapon else {}
 		var spell: Spell = info.get("spell")
-		if spell == null:
-			continue
-		# Riga dell'incantesimo: icona, nome, costo; [R] e i quadratini se ce n'è più d'uno.
-		var icon_pos := Vector2(x + 18, y)
-		ci.draw_rect(Rect2(icon_pos - Vector2(1, 1), Vector2(13, 13)), Color(0, 0, 0, 0.9))
-		ci.draw_rect(Rect2(icon_pos, Vector2(11, 11)), Color(0.08, 0.06, 0.1))
-		ci.draw_texture(_spell_icon(spell), icon_pos)
-		var charge: float = info.get("ready", 1.0)
-		if charge < 1.0:  # ricarica: l'icona si "riempie" dal basso
-			var h := roundf(11.0 * (1.0 - charge))
-			ci.draw_rect(Rect2(icon_pos, Vector2(11, h)), Color(0, 0, 0, 0.6))
-		var enough: bool = _player.mana >= spell.mana_cost
-		PixelFont.draw(ci, Vector2(x + 34, y), spell.display_name, spell.color.lightened(0.35))
-		var spells: Array = info.get("spells", [])
-		var cost := "%d MANA" % roundi(spell.mana_cost)
-		PixelFont.draw(ci, Vector2(x + 34, y + 7), cost, BONE if enough else Color(1, 0.3, 0.25))
-		if spells.size() > 1:
-			var sx := panel.end.x - 6 - spells.size() * 7
-			for i in spells.size():
-				var s: Spell = spells[i]
-				var r := Rect2(sx + i * 7, y + 8, 5, 5)
-				ci.draw_rect(r.grow(1), Color.WHITE if s == spell else Color(0, 0, 0, 0.9))
-				ci.draw_rect(r, s.color)
-			PixelFont.draw(ci, Vector2(sx - 3 - PixelFont.width("[R]"), y + 7), "[R]", DIM)
-		y += 14
+		if spell:
+			var enough: bool = _player.mana >= spell.mana_cost
+			_draw_gem(ci, Vector2(tx + 7, y + 58), 7.0, spell.color, info.get("ready", 1.0))
+			_text(ci, Vector2(tx + 20, y + 63), spell.display_name, 14, spell.color.lightened(0.4))
+			var cost := "%d mana" % roundi(spell.mana_cost)
+			_text(ci, Vector2(panel.end.x - 120, y + 63), cost, 13, BONE if enough else WARN, HORIZONTAL_ALIGNMENT_RIGHT, 100)
+			var spells: Array = info.get("spells", [])
+			if spells.size() > 1:
+				_text(ci, Vector2(panel.end.x - 120, y + 48), "[R] cambia", 11, DIM, HORIZONTAL_ALIGNMENT_RIGHT, 100)
+		y += row_h
 
 	if has_shield:
-		var hint := "[F] PARRY"
-		PixelFont.draw(ci, Vector2(panel.end.x - PixelFont.width(hint), panel.position.y - 10), hint, DIM)
+		_text(ci, Vector2(panel.end.x - 200, panel.position.y - 8), "[F] parry", 13, DIM, HORIZONTAL_ALIGNMENT_RIGHT, 196)
 
 
-## Pannello di ferro: bordo nero, bevel chiaro/scuro e quattro rivetti d'ottone.
-func _draw_panel(ci: Control, r: Rect2) -> void:
-	ci.draw_rect(r.grow(1), Color(0, 0, 0, 0.9))
-	ci.draw_texture_rect(_iron, r, true, Color(1, 1, 1, 0.94))
-	ci.draw_rect(Rect2(r.position, Vector2(r.size.x, 1)), Color(0.42, 0.37, 0.33))
-	ci.draw_rect(Rect2(r.position, Vector2(1, r.size.y)), Color(0.36, 0.32, 0.29))
-	ci.draw_rect(Rect2(r.position + Vector2(0, r.size.y - 1), Vector2(r.size.x, 1)), Color(0.05, 0.04, 0.04))
-	ci.draw_rect(Rect2(r.position + Vector2(r.size.x - 1, 0), Vector2(1, r.size.y)), Color(0.07, 0.06, 0.05))
-	for corner in [Vector2(2, 2), Vector2(r.size.x - 4, 2), Vector2(2, r.size.y - 4), Vector2(r.size.x - 4, r.size.y - 4)]:
-		ci.draw_rect(Rect2(r.position + corner, Vector2(2, 2)), BRASS)
-		ci.draw_rect(Rect2(r.position + corner, Vector2.ONE), BRASS.lightened(0.4))
+# --- Mattoni di disegno ------------------------------------------------------
+
+func _text(ci: CanvasItem, pos: Vector2, text: String, font_size: int, color: Color,
+		align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0, outline := 5) -> void:
+	ci.draw_string_outline(_font, pos, text, align, width, font_size, outline, Color(0.02, 0.015, 0.01, 0.9 * color.a))
+	ci.draw_string(_font, pos, text, align, width, font_size, color)
 
 
-## Barra a segmenti: fondo scuro, parte "fantasma" (vita appena persa), riempimento con riga chiara in alto.
-func _draw_bar(ci: Control, r: Rect2, value: float, ghost: float, color: Color) -> void:
-	ci.draw_rect(r.grow(1), Color(0, 0, 0, 0.95))
-	ci.draw_rect(r, Color(0.06, 0.05, 0.05))
+## Pannello di ferro sporco: ombra, texture, bordo scheggiato scuro, riflesso sul bordo, rivetti.
+func _draw_panel(ci: Control, r: Rect2, seed_value: int) -> void:
+	var pts := _chipped_shape(r, seed_value)
+	var shadow := PackedVector2Array()
+	for p in pts:
+		shadow.append(p + Vector2(4, 5))
+	ci.draw_colored_polygon(shadow, Color(0, 0, 0, 0.4))
+	var uvs := PackedVector2Array()
+	var tex_size := Vector2(_panel_tex.get_width(), _panel_tex.get_height())
+	for p in pts:
+		uvs.append((p - r.position + Vector2(seed_value * 61, seed_value * 37)) / tex_size)
+	ci.draw_colored_polygon(pts, Color(1, 1, 1, 0.96), uvs, _panel_tex)
+	var closed := pts + PackedVector2Array([pts[0]])
+	ci.draw_polyline(closed, Color(0, 0, 0, 0.35), 9.0)    # sporco lungo i bordi
+	ci.draw_polyline(closed, Color(0.02, 0.015, 0.01, 0.95), 2.5)
+	var inner := PackedVector2Array()
+	var c := r.get_center()
+	for p in closed:
+		inner.append(p + Vector2(signf(c.x - p.x), signf(c.y - p.y)) * 3.0)
+	ci.draw_polyline(inner, Color(0.62, 0.52, 0.4, 0.18), 1.0)
+	for corner in [Vector2(11, 11), Vector2(r.size.x - 11, 11), Vector2(11, r.size.y - 11), Vector2(r.size.x - 11, r.size.y - 11)]:
+		var p: Vector2 = r.position + corner
+		ci.draw_circle(p + Vector2(1, 1), 3.5, Color(0, 0, 0, 0.7))
+		ci.draw_circle(p, 3.2, BRASS)
+		ci.draw_circle(p - Vector2(1, 1), 1.2, BRASS.lightened(0.5))
+
+
+## Contorno del pannello: angoli tagliati e bordi un po' irregolari (sempre uguali per lo stesso seed).
+func _chipped_shape(r: Rect2, seed_value: int) -> PackedVector2Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 7919
+	var cut := 9.0
+	var edges := [
+		[r.position + Vector2(cut, 0), r.position + Vector2(r.size.x - cut, 0)],
+		[r.position + Vector2(r.size.x, cut), r.end - Vector2(0, cut)],
+		[r.end - Vector2(cut, 0), r.position + Vector2(cut, r.size.y)],
+		[r.position + Vector2(0, r.size.y - cut), r.position + Vector2(0, cut)],
+	]
+	var pts := PackedVector2Array()
+	for edge in edges:
+		var a: Vector2 = edge[0]
+		var b: Vector2 = edge[1]
+		var steps := maxi(int(a.distance_to(b) / 16.0), 1)
+		var inward := (r.get_center() - (a + b) / 2.0).normalized()
+		for i in steps:
+			var t := float(i) / steps
+			var jitter := rng.randf_range(0.0, 2.2) if i > 0 else 0.0
+			if rng.randf() < 0.08 and i > 0:
+				jitter += 3.5  # scheggiatura
+			pts.append(a.lerp(b, t) + inward * jitter)
+	return pts
+
+
+## Barra con texture che scorre piano, parte "fantasma" (vita appena persa) e tacche ogni 10%.
+func _draw_bar(ci: Control, r: Rect2, value: float, ghost: float, tex: Texture2D, tint: Color) -> void:
+	ci.draw_rect(r.grow(3), Color(0, 0, 0, 0.85))
+	ci.draw_rect(r, Color(0.05, 0.04, 0.035))
 	var w := roundf(r.size.x * clampf(value, 0.0, 1.0))
 	var gw := roundf(r.size.x * clampf(ghost, 0.0, 1.0))
 	if gw > w:
 		ci.draw_rect(Rect2(r.position + Vector2(w, 0), Vector2(gw - w, r.size.y)), GHOST)
 	if w > 0.0:
-		ci.draw_rect(Rect2(r.position, Vector2(w, r.size.y)), color)
-		ci.draw_rect(Rect2(r.position, Vector2(w, 1)), color.lightened(0.35))
-		ci.draw_rect(Rect2(r.position + Vector2(0, r.size.y - 2), Vector2(w, 2)), color.darkened(0.35))
-	for sx in range(5, int(r.size.x), 6):  # tacche
-		ci.draw_rect(Rect2(r.position + Vector2(sx, 0), Vector2(1, r.size.y)), Color(0, 0, 0, 0.45))
+		var scroll := fmod(_clock * 14.0, float(tex.get_width()))
+		ci.draw_texture_rect_region(tex, Rect2(r.position, Vector2(w, r.size.y)),
+				Rect2(scroll, 0, w, tex.get_height()), tint)
+		ci.draw_rect(Rect2(r.position, Vector2(w, 2)), Color(1, 1, 1, 0.12))
+		ci.draw_rect(Rect2(r.position + Vector2(0, r.size.y - 3), Vector2(w, 3)), Color(0, 0, 0, 0.3))
+		ci.draw_rect(Rect2(r.position + Vector2(w - 2, 0), Vector2(2, r.size.y)), Color(1, 0.9, 0.8, 0.35))
+	for i in range(1, 10):
+		var tx := r.position.x + roundf(r.size.x * i / 10.0)
+		ci.draw_rect(Rect2(tx, r.position.y, 1, r.size.y), Color(0, 0, 0, 0.35))
+	ci.draw_rect(r, Color(0.4, 0.33, 0.25, 0.35), false, 1.0)
 
 
-# --- Texture generate --------------------------------------------------------
+## Gemma dell'incantesimo: rombo sfaccettato; durante la ricarica è spenta e un arco la circonda.
+func _draw_gem(ci: Control, c: Vector2, radius: float, color: Color, charge: float) -> void:
+	var top := c + Vector2(0, -radius)
+	var right := c + Vector2(radius, 0)
+	var bottom := c + Vector2(0, radius)
+	var left := c + Vector2(-radius, 0)
+	ci.draw_colored_polygon(PackedVector2Array([top, right, bottom, left]), Color(0, 0, 0, 0.8))
+	var lit := color if charge >= 1.0 else color.darkened(0.6)
+	ci.draw_colored_polygon(PackedVector2Array([top, right, c]), lit.lightened(0.45))
+	ci.draw_colored_polygon(PackedVector2Array([top, c, left]), lit.lightened(0.15))
+	ci.draw_colored_polygon(PackedVector2Array([left, c, bottom]), lit.darkened(0.25))
+	ci.draw_colored_polygon(PackedVector2Array([c, right, bottom]), lit.darkened(0.45))
+	if charge < 1.0:
+		ci.draw_arc(c, radius + 4, -PI / 2, -PI / 2 + TAU * charge, 16, color.lightened(0.3), 2.0)
+	ci.draw_polyline(PackedVector2Array([top, right, bottom, left, top]), Color(0, 0, 0, 0.9), 1.5)
 
-## Ferro scuro e graffiato con macchie di ruggine (32x32, ripetuta sui pannelli).
-func _make_iron_texture() -> ImageTexture:
+
+## Macchia scura sfumata ai lati (sotto i messaggi).
+func _smudge(ci: Control, r: Rect2, alpha: float) -> void:
+	var steps := 8
+	for i in steps:
+		var t := float(i) / steps
+		var inset := r.size.x * 0.5 * t * 0.9
+		ci.draw_rect(Rect2(r.position.x + inset, r.position.y, r.size.x - inset * 2.0, r.size.y), Color(0, 0, 0, alpha / steps * 1.6))
+
+
+# --- Risorse generate --------------------------------------------------------
+
+## Font serif di sistema (il primo che c'è tra quelli elencati), con lettere un po' spaziate.
+func _make_font() -> Font:
+	var sys := SystemFont.new()
+	sys.font_names = PackedStringArray(["Cinzel", "Trajan Pro", "Palatino Linotype", "Book Antiqua",
+			"Georgia", "Times New Roman", "DejaVu Serif", "Liberation Serif", "serif"])
+	sys.font_weight = 600
+	var v := FontVariation.new()
+	v.base_font = sys
+	v.spacing_glyph = 1
+	return v
+
+
+## Ferro scuro e sporco: macchie di ruggine, graffi, colature (192x192, ripetuta sui pannelli).
+func _make_panel_texture() -> ImageTexture:
+	var n := 192
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	var n := 32
-	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
-	var noise := FastNoiseLite.new()
-	noise.seed = 7
-	noise.frequency = 0.12
+	var base := FastNoiseLite.new()
+	base.seed = 3
+	base.frequency = 0.02
+	base.fractal_octaves = 4
+	var rust := FastNoiseLite.new()
+	rust.seed = 11
+	rust.frequency = 0.035
+	rust.fractal_octaves = 3
 	for y in n:
 		for x in n:
-			var v := noise.get_noise_2d(x, y) * 0.5 + 0.5 + rng.randf_range(-0.12, 0.12)
-			var col := Color(0.10, 0.09, 0.09)
-			if v > 0.68:
-				col = Color(0.21, 0.10, 0.05)   # ruggine
-			elif v > 0.52:
-				col = Color(0.14, 0.12, 0.11)
-			elif v < 0.25:
-				col = Color(0.07, 0.06, 0.06)
+			var v := base.get_noise_2d(x, y) * 0.5 + 0.5
+			var col := Color(0.075, 0.07, 0.065).lerp(Color(0.17, 0.155, 0.14), v)
+			var rv := rust.get_noise_2d(x, y) * 0.5 + 0.5
+			if rv > 0.6:
+				col = col.lerp(Color(0.26, 0.12, 0.05), clampf((rv - 0.6) * 3.0, 0.0, 0.75))
+			col = col.darkened(rng.randf_range(0.0, 0.18))
 			img.set_pixel(x, y, col)
-	for i in 6:  # graffi
-		var sx := rng.randi_range(0, n - 1)
-		var sy := rng.randi_range(0, n - 1)
-		for t in rng.randi_range(3, 9):
-			img.set_pixel((sx + t) % n, (sy + int(t / 3.0)) % n, Color(0.22, 0.2, 0.19))
+	for i in 70:  # graffi chiari
+		var p := Vector2(rng.randf_range(0, n), rng.randf_range(0, n))
+		var dir := Vector2.from_angle(rng.randf_range(-0.6, 0.6) + (PI if rng.randf() < 0.5 else 0.0))
+		for t in rng.randi_range(6, 26):
+			var q := p + dir * t
+			var px := posmod(int(q.x), n)
+			var py := posmod(int(q.y), n)
+			img.set_pixel(px, py, img.get_pixel(px, py).lightened(0.25))
+	for i in 25:  # colature di ruggine verticali
+		var x0 := rng.randi_range(0, n - 1)
+		var y0 := rng.randi_range(0, n - 1)
+		for t in rng.randi_range(8, 40):
+			var py := posmod(y0 + t, n)
+			img.set_pixel(x0, py, img.get_pixel(x0, py).lerp(Color(0.3, 0.13, 0.05), 0.35 * (1.0 - t / 40.0)))
 	return ImageTexture.create_from_image(img)
 
 
-## Icona 11x11 dell'incantesimo dalla sua pixel art (vedi magic/spell.gd).
-func _spell_icon(spell: Spell) -> ImageTexture:
-	if _icons.has(spell):
-		return _icons[spell]
-	var img := Image.create(11, 11, false, Image.FORMAT_RGBA8)
-	var palette := spell.icon_palette()
-	for y in mini(spell.icon.size(), 11):
-		var row := spell.icon[y]
-		for x in mini(row.length(), 11):
-			if palette.has(row[x]):
-				img.set_pixel(x, y, palette[row[x]])
-	var tex := ImageTexture.create_from_image(img)
-	_icons[spell] = tex
+## Texture di una barra: striature orizzontali tra due colori, con grumi più scuri (256x16).
+func _make_bar_texture(dark: Color, light: Color, seed_value: int) -> ImageTexture:
+	var w := 256
+	var h := 16
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.frequency = 0.05
+	noise.fractal_octaves = 3
+	for y in h:
+		for x in w:
+			# Rumore stirato in orizzontale (striature), più chiaro in alto e più scuro in basso.
+			var v := noise.get_noise_2d(x * 0.35, y * 3.0) * 0.5 + 0.5
+			var shade := 1.0 - absf(float(y) / h - 0.3) * 0.9
+			img.set_pixel(x, y, dark.lerp(light, clampf(v * shade * 1.3, 0.0, 1.0)))
+	return ImageTexture.create_from_image(img)
+
+
+## Vignetta: trasparente al centro, piena ai bordi (si colora con il modulate).
+func _make_vignette() -> GradientTexture2D:
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1, 1, 1, 0))
+	gradient.set_color(1, Color(1, 1, 1, 1))
+	gradient.add_point(0.55, Color(1, 1, 1, 0))
+	var tex := GradientTexture2D.new()
+	tex.gradient = gradient
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.05, 0.5)
+	tex.width = 256
+	tex.height = 256
 	return tex
+
+
+# --- Anteprima 3D delle armi -------------------------------------------------
+
+## Mini scena 3D (mondo a parte) con il modello dell'arma che ruota piano; la HUD ne disegna la texture.
+class WeaponPreview extends SubViewport:
+	var shown: Weapon
+	var _camera: Camera3D
+	var _tilt: Node3D
+	var _spinner: Node3D
+
+	func _init() -> void:
+		size = Vector2i(160, 160)
+		transparent_bg = true
+		own_world_3d = true
+		render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		msaa_3d = Viewport.MSAA_2X
+		_camera = Camera3D.new()
+		_camera.fov = 32.0
+		var env := Environment.new()
+		env.background_mode = Environment.BG_CLEAR_COLOR
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.ambient_light_color = Color(0.4, 0.36, 0.32)
+		env.ambient_light_energy = 0.7
+		_camera.environment = env
+		add_child(_camera)
+		var key := DirectionalLight3D.new()
+		key.rotation = Vector3(deg_to_rad(-35), deg_to_rad(40), 0)
+		key.light_color = Color(1.0, 0.85, 0.65)
+		key.light_energy = 1.6
+		add_child(key)
+		var rim := DirectionalLight3D.new()
+		rim.rotation = Vector3(deg_to_rad(-10), deg_to_rad(-150), 0)
+		rim.light_color = Color(0.55, 0.62, 1.0)
+		rim.light_energy = 1.0
+		add_child(rim)
+		_tilt = Node3D.new()
+		add_child(_tilt)
+		_spinner = Node3D.new()
+		_tilt.add_child(_spinner)
+
+	## Mostra il modello dell'arma (null = niente).
+	func show_weapon(weapon: Weapon) -> void:
+		shown = weapon
+		for child in _spinner.get_children():
+			child.queue_free()
+		if weapon == null:
+			return
+		var source := weapon.get_node_or_null("Model")
+		if source == null or source.scene_file_path == "":
+			return
+		var model := (load(source.scene_file_path) as PackedScene).instantiate() as Node3D
+		# La mesh più grande è il corpo dell'arma: la si mette dritta (asse Y in su) e centrata.
+		var best: MeshInstance3D
+		for child in model.find_children("*", "MeshInstance3D", true, false):
+			var mi := child as MeshInstance3D
+			if mi.mesh and (best == null or mi.mesh.get_aabb().size.length() > best.mesh.get_aabb().size.length()):
+				best = mi
+		if best == null:
+			model.free()
+			return
+		var rel := Transform3D.IDENTITY
+		var n: Node = best
+		while n != model:
+			rel = (n as Node3D).transform * rel
+			n = n.get_parent()
+		model.transform = rel.affine_inverse()
+		var aabb := best.mesh.get_aabb()
+		var holder := Node3D.new()
+		holder.position = -aabb.get_center()
+		holder.add_child(model)
+		_spinner.add_child(holder)
+		# Le armi lunghe (spada, bastone) stanno in diagonale, così riempiono il riquadro.
+		var long := aabb.size.y > 1.8 * maxf(aabb.size.x, aabb.size.z)
+		_tilt.rotation = Vector3(0.2, 0.0, -0.75 if long else 0.0)
+		var extent := aabb.size.length() * 0.5
+		_camera.position = Vector3(0, 0, extent / tan(deg_to_rad(_camera.fov * 0.5)) * 1.08)
+
+	func _process(delta: float) -> void:
+		_spinner.rotate_y(delta * 1.1)

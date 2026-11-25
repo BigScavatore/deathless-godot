@@ -217,6 +217,8 @@ func _on_slash_hit() -> void:
 		Combat.hitstop(self, 0.06)
 		if player and player.has_method("add_shake"):
 			player.add_shake(0.25)
+	if synergies:
+		synergies.on_sword_slash(self, landed)  # es. lancia un globo arcano / carica il bastone
 	slash_hit.emit()
 
 

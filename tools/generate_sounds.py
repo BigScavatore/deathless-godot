@@ -434,6 +434,47 @@ def snd_spell_switch(rng):
     return dirty(fade_out(x, 0.05), rng, drive=1.5, tone=2600.0)
 
 
+def snd_orb_summon(rng):
+    """Globo arcano evocato: accordo cristallino che sale e risuona."""
+    d = 0.9
+    n = int(d * SR)
+    t = np.arange(n) / SR
+    x = np.zeros(n)
+    for k, f0 in enumerate((440, 660, 990)):
+        f = f0 * rng.uniform(0.98, 1.02) * (1.0 + 0.3 * (1 - np.exp(-t / 0.15)))
+        x += np.sin(2 * np.pi * np.cumsum(f) / SR) * env_exp(n, 0.35, attack=0.04 + 0.03 * k) / (k + 1)
+    x += 0.5 * whoosh(rng, d, 200, 1400, 600, q=1.5, peak_at=0.3)
+    return dirty(fade_out(x, 0.1), rng, drive=1.6, tone=3000.0, wet=0.35, room_decay=1.1)
+
+
+def snd_orb_launch(rng):
+    """Globo lanciato: risucchio e sibilo che parte veloce."""
+    d = 0.55
+    x = 1.3 * whoosh(rng, d, 250, 2200, 700, q=1.6, peak_at=0.15)
+    x += 0.7 * thud(rng, d, 120, 60, 0.05)
+    return dirty(fade_out(x, 0.05), rng, drive=2.0, tone=3000.0, wet=0.25)
+
+
+def snd_orb_blast(rng):
+    """Esplosione del globo: boato profondo, cristallo che si frantuma, eco."""
+    d = 1.3
+    n = int(d * SR)
+    x = 2.0 * thud(rng, d, 110, 32, 0.25)
+    x += 0.8 * svf(white(rng, n), np.linspace(3000, 200, n), 0.8, "low") * env_exp(n, 0.15)
+    for _ in range(10):
+        place(x, metal(rng, 0.35, rng.uniform(1500, 3800), 0.06, partials=3, bright=0.9), rng.exponential(0.06), rng.uniform(0.15, 0.4))
+    x += 0.9 * grains(rng, d, 100, length=0.006, cutoff=2000, decay=0.25)
+    return dirty(fade_out(x, 0.15), rng, drive=3.0, tone=3000.0, wet=0.32, room_decay=1.3)
+
+
+def snd_charge_gain(rng):
+    """Carica della "Lama arcana": rintocco breve e acuto."""
+    d = 0.45
+    x = metal(rng, d, rng.uniform(1300, 1500), 0.1, partials=3, spread=0.5, bright=0.5)
+    x += 0.3 * whoosh(rng, d, 600, 1800, 900, q=2.0, peak_at=0.1)
+    return dirty(fade_out(x, 0.05), rng, drive=1.4, tone=3500.0, wet=0.3)
+
+
 SOUNDS = {  # nome: (funzione, varianti)
     "swing": (snd_swing, 3),
     "swing_heavy": (snd_swing_heavy, 2),
@@ -460,6 +501,10 @@ SOUNDS = {  # nome: (funzione, varianti)
     "shard_hit": (snd_shard_hit, 3),
     "spell_fizzle": (snd_spell_fizzle, 2),
     "spell_switch": (snd_spell_switch, 1),
+    "orb_summon": (snd_orb_summon, 2),
+    "orb_launch": (snd_orb_launch, 2),
+    "orb_blast": (snd_orb_blast, 2),
+    "charge_gain": (snd_charge_gain, 2),
 }
 
 
