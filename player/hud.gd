@@ -58,8 +58,9 @@ func _ready() -> void:
 	viewport.handle_input_locally = false
 	viewport.gui_disable_input = true
 	container.add_child(viewport)
-	_canvas = Canvas.new()
-	_canvas.hud = self
+	var canvas := Canvas.new()
+	canvas.hud = self
+	_canvas = canvas
 	_canvas.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_canvas.set_anchors_preset(Control.PRESET_FULL_RECT)

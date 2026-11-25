@@ -19,7 +19,7 @@ extends Resource
 @export var cooldown := 0.3
 ## Colore della magia: cristallo del bastone, HUD, proiettili.
 @export var color := Color(0.6, 0.45, 1.0)
-@export var icon: PackedStringArray = []
+@export var icon := PackedStringArray()
 
 
 ## Lancia l'incantesimo. `aim`: origine = punto da cui parte, -Z = direzione (verso il mirino).

@@ -126,7 +126,7 @@ static func _build() -> void:
 		return
 	var total := 0
 	for ch in GLYPHS:
-		total += _trimmed(ch).size.y + 1
+		total += _trimmed(ch).y + 1
 	var img := Image.create(maxi(total, 1), HEIGHT, false, Image.FORMAT_RGBA8)
 	var x := 0
 	for ch in GLYPHS:
