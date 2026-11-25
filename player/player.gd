@@ -116,6 +116,7 @@ var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _dash_charges := 0.0
 var _dash_time_left := 0.0
 var _dash_dir := Vector3.ZERO
+var _dash_current_speed := 0.0
 
 var _wall_jumps_left := 0
 var _wall_normal := Vector3.ZERO
@@ -369,6 +370,12 @@ func hand_items(hand: Weapon.Hand) -> Array[Weapon]:
 	return _viewmodel.items(hand)
 
 
+## Un proiettile amico sta tornando addosso al player: le armi in mano possono respingerlo
+## (es. lo scudo con la sinergia "Specchio arcano"). Restituisce il moltiplicatore, 0 = niente.
+func reflect_strength(source_position: Vector3) -> float:
+	return _viewmodel.reflect_strength(source_position)
+
+
 ## Il viewmodel (le due mani): per cambiare equipaggiamento usa _viewmodel.set_hand_items().
 func viewmodel() -> Node3D:
 	return _viewmodel
@@ -541,8 +548,31 @@ func _start_dash() -> void:
 		dir = -global_basis.z  # senza input: dash in avanti
 	_dash_dir = dir.normalized()
 	_dash_time_left = dash_duration
+	_dash_current_speed = dash_speed
 	_dash_charges -= 1.0
 	Sfx.play(self, &"dash", -6.0)
+
+
+## Affondo in avanti (es. sinergia "Assalto" di spada e scudo): un dash dritto dove guardi,
+## a `speed` m/s per `duration` secondi. Usa una carica del dash: false se non ce ne sono.
+func lunge(speed: float, duration: float) -> bool:
+	if _dead or _locked_time > 0.0 or _dash_charges < 1.0:
+		return false
+	var dir := -global_basis.z
+	dir.y = 0.0
+	_sliding = false
+	_slamming = false
+	_dash_dir = dir.normalized()
+	_dash_time_left = duration
+	_dash_current_speed = speed
+	_dash_charges -= 1.0
+	Sfx.play(self, &"dash", -4.0)
+	return true
+
+
+## true mentre il player sta facendo un dash (o un affondo).
+func is_dashing() -> bool:
+	return _dash_time_left > 0.0
 
 
 func _process_dash(delta: float) -> void:
@@ -551,7 +581,7 @@ func _process_dash(delta: float) -> void:
 		# Fine dash: si mantiene un po' di slancio, senza gravità accumulata.
 		velocity = _dash_dir * dash_exit_speed
 	else:
-		velocity = _dash_dir * dash_speed  # niente gravità durante il dash
+		velocity = _dash_dir * _dash_current_speed  # niente gravità durante il dash
 
 
 # --- Wall jump -------------------------------------------------------------

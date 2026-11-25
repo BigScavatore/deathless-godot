@@ -29,7 +29,9 @@ extends Resource
 
 ## Lancia l'incantesimo. `aim`: origine = punto da cui parte, -Z = direzione (verso il mirino).
 ## `caster`: chi lancia (non viene colpito dai suoi incantesimi).
-func cast(_caster: Node3D, _aim: Transform3D) -> void:
+## `mods`: modifiche date dalle sinergie tra le armi (es. {"bounces": 3, "reflectable": true});
+## ogni incantesimo usa quelle che capisce e ignora le altre.
+func cast(_caster: Node3D, _aim: Transform3D, _mods := {}) -> void:
 	pass
 
 

@@ -165,14 +165,15 @@ func _release_cast() -> void:
 	if spell == null or player == null:
 		return
 	var aim := _aim()
-	spell.cast(player, aim)
+	var mods: Dictionary = synergies.spell_mods(self) if synergies else {}
+	spell.cast(player, aim, mods)
 	# Sinergia "Lama arcana": le cariche della spada aggiungono schegge a ventaglio (gratis).
 	var extra: int = synergies.take_extra_casts(self) if synergies else 0
 	if extra > 0:
 		var step := deg_to_rad(synergies.fan_spread_deg)
 		for i in extra:
 			var offset := step * float(int(i / 2.0) + 1) * (1.0 if i % 2 == 0 else -1.0)
-			spell.cast(player, Transform3D(aim.basis.rotated(aim.basis.y, offset), aim.origin))
+			spell.cast(player, Transform3D(aim.basis.rotated(aim.basis.y, offset), aim.origin), mods)
 		MagicFX.flash(get_tree().current_scene, aim.origin, spell.color, 8.0, 6.0, 0.25)
 		Sfx.play(self, &"orb_launch", -2.0, 0.05)
 	if spell.cast_sound != &"":
