@@ -172,6 +172,8 @@ func _apply_spell_color() -> void:
 func _flash(energy: float, duration: float) -> void:
 	if _glow_tween:
 		_glow_tween.kill()
+	if _crystal() == null and _light == null:
+		return  # un Tween senza animazioni darebbe errore
 	_glow_tween = create_tween().set_parallel()
 	if _crystal():
 		_crystal_material.set_shader_parameter("emission_energy", energy)
