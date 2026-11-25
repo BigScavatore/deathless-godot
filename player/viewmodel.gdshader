@@ -9,6 +9,9 @@ uniform sampler2D albedo_texture : source_color, filter_nearest, repeat_disable;
 uniform vec4 albedo_color : source_color = vec4(1.0);
 uniform float roughness : hint_range(0.0, 1.0) = 1.0;
 uniform float metallic : hint_range(0.0, 1.0) = 0.0;
+// Parti luminose (es. cristalli del bastone): emissione = texture * colore * energia.
+uniform vec4 emission_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
+uniform float emission_energy = 0.0;
 uniform float viewmodel_fov : hint_range(30.0, 120.0) = 75.0;
 // Frazione della profondità originale che viene mantenuta (più piccola = più "attaccata" alla camera).
 uniform float depth_scale : hint_range(0.001, 1.0) = 0.02;
@@ -27,7 +30,9 @@ void vertex() {
 }
 
 void fragment() {
-	ALBEDO = texture(albedo_texture, UV).rgb * albedo_color.rgb;
+	vec3 tex = texture(albedo_texture, UV).rgb;
+	ALBEDO = tex * albedo_color.rgb;
+	EMISSION = tex * emission_color.rgb * emission_energy;
 	ROUGHNESS = roughness;
 	METALLIC = metallic;
 }
