@@ -29,6 +29,7 @@ var _ready_at := 0
 var _crystal_material: ShaderMaterial
 var _glow_tween: Tween
 var _casting_spell: Spell
+var _synergy_cast := false
 
 @onready var _light: OmniLight3D = get_node_or_null("Model/StaffModel/StaffArm/Staff/Crystal/Glow")
 
@@ -38,7 +39,9 @@ func _process(_delta: float) -> void:
 		_try_cast()
 	# Il cristallo "respira" piano.
 	if _crystal() and (_glow_tween == null or not _glow_tween.is_running()):
-		var pulse := glow_idle * (0.85 + 0.15 * sin(Time.get_ticks_msec() * 0.004))
+		# Con le cariche della "Lama arcana" il cristallo brilla di più e pulsa più in fretta.
+		var charge: float = synergies.charge_level() if synergies and hand == Hand.RIGHT else 0.0
+		var pulse := glow_idle * (1.0 + 3.0 * charge) * (0.85 + 0.15 * sin(Time.get_ticks_msec() * (0.004 + 0.01 * charge)))
 		_crystal_material.set_shader_parameter("emission_energy", pulse)
 
 
@@ -77,6 +80,7 @@ func _is_casting() -> bool:
 func reset_state() -> void:
 	_holding = false
 	_casting_spell = null
+	_synergy_cast = false
 
 
 func equip() -> void:
@@ -128,7 +132,16 @@ func _try_cast() -> void:
 	var now := Time.get_ticks_msec()
 	if spell == null or now < _ready_at or player == null or _is_casting():
 		return
-	if not player.has_method("use_mana") or not player.use_mana(spell.mana_cost):
+	# Sinergia (es. Globi arcani): al posto dell'incantesimo il bastone fa altro.
+	var synergy: Synergies.CastResult = synergies.on_staff_try_cast(self) if synergies else Synergies.CastResult.NONE
+	if synergy == Synergies.CastResult.OK:
+		_ready_at = now + int(synergies.orb_cooldown * 1000.0)
+		_synergy_cast = true
+		_play_from_start(&"cast")
+		_flash(glow_cast * 0.5, 0.12)
+		return
+	if synergy == Synergies.CastResult.NO_MANA or not player.has_method("use_mana") \
+			or not player.use_mana(spell.mana_cost):
 		_ready_at = now + 350
 		_play_from_start(&"fizzle")
 		Sfx.play(self, &"spell_fizzle", -6.0)
@@ -141,16 +154,32 @@ func _try_cast() -> void:
 
 # Chiamato dall'animazione "cast" (traccia metodo) quando il bastone scatta in avanti.
 func _release_cast() -> void:
+	if _synergy_cast:
+		_synergy_cast = false
+		if synergies:
+			synergies.on_staff_release(self)
+		_flash(glow_cast, 0.3)
+		return
 	var spell := _casting_spell
 	_casting_spell = null
 	if spell == null or player == null:
 		return
-	spell.cast(player, _aim())
+	var aim := _aim()
+	spell.cast(player, aim)
+	# Sinergia "Lama arcana": le cariche della spada aggiungono schegge a ventaglio (gratis).
+	var extra: int = synergies.take_extra_casts(self) if synergies else 0
+	if extra > 0:
+		var step := deg_to_rad(synergies.fan_spread_deg)
+		for i in extra:
+			var offset := step * float(int(i / 2.0) + 1) * (1.0 if i % 2 == 0 else -1.0)
+			spell.cast(player, Transform3D(aim.basis.rotated(aim.basis.y, offset), aim.origin))
+		MagicFX.flash(get_tree().current_scene, aim.origin, spell.color, 8.0, 6.0, 0.25)
+		Sfx.play(self, &"orb_launch", -2.0, 0.05)
 	if spell.cast_sound != &"":
 		Sfx.play(self, spell.cast_sound, -2.0, 0.08)
-	_flash(glow_cast, 0.3)
+	_flash(glow_cast * (1.5 if extra > 0 else 1.0), 0.3)
 	if player.has_method("add_shake"):
-		player.add_shake(spell.cast_shake)
+		player.add_shake(spell.cast_shake * (1.8 if extra > 0 else 1.0))
 
 
 ## Da dove parte l'incantesimo e verso dove va: parte poco davanti alla camera, dal lato della mano

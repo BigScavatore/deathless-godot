@@ -6,7 +6,8 @@ extends Resource
 ## alla lista "spells" del bastone. Gli incantesimi si sbloccano nel gioco con Staff.unlock_spell(id)
 ## (es. da un oggetto raccolto); quelli in "unlocked" del bastone sono già disponibili all'inizio.
 ##
-## L'icona per la HUD è pixel art scritta a mano: righe di caratteri, uno per pixel
+## "icon" (facoltativa, per ora la HUD mostra una gemma del colore dell'incantesimo) è pixel art
+## scritta a mano: righe di caratteri, uno per pixel
 ##   "." trasparente, "a" contorno scuro, "b" colore base, "c" chiaro, "d" riflesso (quasi bianco)
 ## Le tonalità vengono da "color".
 

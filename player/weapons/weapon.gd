@@ -24,11 +24,16 @@ enum Hand { RIGHT, LEFT }
 @export var equip_sound := &""
 ## Mano per cui è modellata e animata. Nell'altra mano viene specchiata.
 @export var native_hand := Hand.RIGHT
+## Tipo d'arma (es. &"sword", &"shield", &"staff"): serve a riconoscere le sinergie tra le mani
+## (vedi player/weapons/synergies.gd).
+@export var kind := &""
 
 ## Il player che impugna l'arma (lo imposta il Viewmodel).
 var player: CharacterBody3D
 ## In che mano è adesso (lo imposta il Viewmodel).
 var hand := Hand.RIGHT
+## Le sinergie tra le due mani (le imposta il Viewmodel; null se l'arma è usata da sola).
+var synergies: Synergies
 
 var _lowered := false
 var _lower_tween: Tween

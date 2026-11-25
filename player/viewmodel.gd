@@ -14,6 +14,8 @@ extends Node3D
 ##   E / rotella giù / croce dx = arma successiva nella mano destra
 ##   Q / rotella su / croce sx  = arma successiva nella mano sinistra
 ## Per cambiare l'equipaggiamento da codice (inventario, oggetti raccolti): set_hand_items().
+## Certe coppie di armi hanno una sinergia (vedi player/weapons/synergies.gd): il nodo "synergies"
+## viene aggiornato a ogni cambio d'arma.
 ##
 ## Le armi usano viewmodel.gdshader: FOV proprio e sempre disegnate davanti al mondo
 ## (non entrano nei muri e non si deformano col FOV del dash).
@@ -51,6 +53,9 @@ var _slots := {}
 var _index := {RIGHT: 0, LEFT: 0}
 var _switching := {RIGHT: false, LEFT: false}
 
+## Sinergie tra le armi delle due mani.
+var synergies: Synergies
+
 
 func _ready() -> void:
 	_base_position = position
@@ -61,6 +66,10 @@ func _ready() -> void:
 	var empty_right: Array[Weapon] = []
 	var empty_left: Array[Weapon] = []
 	_slots = {RIGHT: empty_right, LEFT: empty_left}
+	synergies = Synergies.new()
+	synergies.name = "Synergies"
+	synergies.player = _player
+	add_child(synergies)
 	set_hand_items(RIGHT, right_hand)
 	set_hand_items(LEFT, left_hand)
 
@@ -81,6 +90,7 @@ func set_hand_items(hand: Weapon.Hand, scenes: Array[PackedScene]) -> void:
 			continue
 		weapon.player = _player
 		weapon.hand = hand
+		weapon.synergies = synergies
 		weapon.visible = false
 		# Modellata per l'altra mano: specchiata.
 		weapon.scale = Vector3(-1, 1, 1) if weapon.native_hand != hand else Vector3.ONE
@@ -127,6 +137,7 @@ func cycle(hand: Weapon.Hand) -> void:
 
 
 func _equip(hand: Weapon.Hand, weapon: Weapon) -> void:
+	synergies.refresh(item(RIGHT), item(LEFT))
 	hand_changed.emit(hand, weapon)
 	await weapon.equip()
 
