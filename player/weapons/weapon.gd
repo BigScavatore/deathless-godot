@@ -33,7 +33,7 @@ var player: CharacterBody3D
 ## In che mano è adesso (lo imposta il Viewmodel).
 var hand := Hand.RIGHT
 ## Le sinergie tra le due mani (le imposta il Viewmodel; null se l'arma è usata da sola).
-var synergies: Synergies
+var synergies: Node  # Synergies (non tipizzato per non creare un riferimento circolare tra le classi)
 
 var _lowered := false
 var _lower_tween: Tween
@@ -103,6 +103,12 @@ func is_invulnerable() -> bool:
 ## l'arma può pararlo (scudo, parry...). Restituisce un Combat.HitResult.
 func defend(_source_position: Vector3) -> Combat.HitResult:
 	return Combat.HitResult.HIT
+
+
+## Un proiettile amico (es. una scheggia che rimbalza) arriva da `source_position`: se l'arma
+## può respingerlo restituisce il moltiplicatore di velocità/danno (> 0), altrimenti 0.
+func reflect_strength(_source_position: Vector3) -> float:
+	return 0.0
 
 
 ## L'altra mano chiede spazio: l'arma si abbassa (o torna su). Le armi possono reagire

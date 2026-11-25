@@ -49,7 +49,7 @@ func _ready() -> void:
 
 	for mi in [core, halo]:
 		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		(mi as MeshInstance3D).layers = Gore.NO_BLOOD_LAYER
+		(mi as MeshInstance3D).layers = Layers.NO_BLOOD
 
 	var light := OmniLight3D.new()
 	light.light_color = color
@@ -62,7 +62,7 @@ func _ready() -> void:
 	box.size = Vector3.ONE * 0.04
 	box.material = MagicFX.glow(color.lightened(0.3), 3.0)
 	_trail.mesh = box
-	_trail.layers = Gore.NO_BLOOD_LAYER
+	_trail.layers = Layers.NO_BLOOD
 	_trail.amount = 16
 	_trail.lifetime = 0.4
 	_trail.local_coords = false

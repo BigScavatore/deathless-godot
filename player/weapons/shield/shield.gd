@@ -59,6 +59,19 @@ func parry_pressed() -> void:
 	Sfx.play(self, &"parry_whiff", -8.0)
 
 
+## Respinge i proiettili amici (sinergia "Specchio arcano"): col parry più forte che con la parata.
+func reflect_strength(source_position: Vector3) -> float:
+	if not _is_frontal(source_position) or is_lowered():
+		return 0.0
+	if Time.get_ticks_msec() <= _parry_until:
+		_play_from_start(&"parry_hit")
+		return 1.8
+	if is_blocking:
+		_play_from_start(&"block_hit")
+		return 1.35
+	return 0.0
+
+
 func is_invulnerable() -> bool:
 	return Time.get_ticks_msec() < _invulnerable_until
 

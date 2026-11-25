@@ -159,6 +159,16 @@ func defend(source_position: Vector3) -> Combat.HitResult:
 	return result
 
 
+## Il moltiplicatore più alto tra le armi in mano che possono respingere un proiettile amico (0 = nessuna).
+func reflect_strength(source_position: Vector3) -> float:
+	var best := 0.0
+	for hand in [LEFT, RIGHT]:
+		var weapon := item(hand)
+		if weapon:
+			best = maxf(best, weapon.reflect_strength(source_position))
+	return best
+
+
 func is_invulnerable() -> bool:
 	for hand in [RIGHT, LEFT]:
 		var weapon := item(hand)
@@ -269,7 +279,7 @@ func _apply_style(weapon: Node) -> void:
 	for child in weapon.find_children("*", "MeshInstance3D", true, false):
 		var mi := child as MeshInstance3D
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.layers = Gore.NO_BLOOD_LAYER  # le macchie di sangue (Decal) non si proiettano sulle armi
+		mi.layers = Layers.NO_BLOOD  # le macchie di sangue (Decal) non si proiettano sulle armi
 		if mi.mesh == null:
 			continue
 		for i in mi.mesh.get_surface_count():

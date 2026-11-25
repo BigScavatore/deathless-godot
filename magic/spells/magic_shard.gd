@@ -36,8 +36,10 @@ func _init() -> void:
 	])
 
 
-func cast(caster: Node3D, aim: Transform3D) -> void:
+func cast(caster: Node3D, aim: Transform3D, mods := {}) -> void:
 	var shard := Projectile.new()
+	shard.bounces = int(mods.get("bounces", 0))
+	shard.reflectable = bool(mods.get("reflectable", false))
 	shard.damage = damage
 	shard.speed = speed
 	shard.color = color

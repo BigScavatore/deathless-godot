@@ -5,6 +5,9 @@ extends Weapon
 ##   colpi critici (stile Dark Souls), sempre col tasto della mano:
 ##     - riposte: davanti a un nemico stordito dal parry -> affondo che lo trafigge
 ##     - backstab: alle spalle di un nemico -> pugnalata alla schiena
+##   sinergia "Assalto" (spada + brocchiero): tenendo premuto la spada si carica; rilasciando dopo
+##     Synergies.assault_hold_time parte un affondo in dash che trafigge chi incontra (un tocco
+##     breve resta un fendente). Vedi player/weapons/synergies.gd.
 ## Durante fendenti e critici l'altra mano si abbassa (vedi Weapon.wants_other_hand_lowered).
 ## Le pose sono nell'AnimationPlayer della scena: modificale dall'editor (pannello Animazione).
 
@@ -37,6 +40,12 @@ var _critical_kind := &""
 ## 0 = dritto ("slash"), 1 = rovescio ("slash_back").
 var _combo_step := 0
 var _last_slash_end := 0
+## Assalto: carica (tasto tenuto) e affondo in corso.
+var _charging := false
+var _charge_start := 0
+var _charge_ready := false
+var _lunging := false
+var _lunge_hit: Array[Node] = []
 
 
 func _ready() -> void:
@@ -53,8 +62,74 @@ func use_pressed() -> void:
 			return
 	if _is_slashing():
 		_attack_queued = true  # input buffer: il prossimo fendente parte appena finisce questo
+	elif _lunging:
+		return
+	elif synergies and synergies.can_assault(self):
+		# Assalto: si carica finché il tasto resta premuto (il fendente parte al rilascio).
+		_charging = true
+		_charge_ready = false
+		_charge_start = Time.get_ticks_msec()
+		anim.play(&"charge")
 	else:
 		_slash()
+
+
+func use_released() -> void:
+	if not _charging:
+		return
+	_charging = false
+	var held := (Time.get_ticks_msec() - _charge_start) / 1000.0
+	if synergies and held >= synergies.assault_hold_time and synergies.can_assault(self) and _start_lunge():
+		return
+	_slash()
+
+
+func _process(_delta: float) -> void:
+	if _charging and not _charge_ready and synergies \
+			and (Time.get_ticks_msec() - _charge_start) / 1000.0 >= synergies.assault_hold_time:
+		_charge_ready = true  # carica pronta: un rintocco e la camera trema appena
+		Sfx.play(self, &"charge_gain", -6.0, 0.05)
+		if player and player.has_method("add_shake"):
+			player.add_shake(0.08)
+
+
+func _physics_process(_delta: float) -> void:
+	if not _lunging:
+		return
+	if player == null or not player.has_method("is_dashing") or not player.is_dashing():
+		_lunging = false
+		return
+	# Durante l'affondo colpisce chiunque sia vicino alla punta (una volta sola per nemico).
+	var shape := SphereShape3D.new()
+	shape.radius = synergies.assault_radius
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	var forward := -player.global_basis.z
+	query.transform = Transform3D(Basis.IDENTITY, player.global_position + Vector3.UP * 1.0 + forward * 1.0)
+	query.exclude = [player.get_rid()]
+	for hit in get_world_3d().direct_space_state.intersect_shape(query, 16):
+		var body := hit.collider as Node
+		if body == null or _lunge_hit.has(body) or not body.has_method("take_damage"):
+			continue
+		_lunge_hit.append(body)
+		if body.take_damage(synergies.assault_damage, player) != Combat.HitResult.IGNORED:
+			Sfx.play(self, &"stab", 0.0, 0.08)
+			Combat.hitstop(self, 0.08)
+			if player.has_method("add_shake"):
+				player.add_shake(0.4)
+
+
+## Parte l'affondo (serve una carica del dash): false se non si può.
+func _start_lunge() -> bool:
+	if player == null or not player.has_method("lunge"):
+		return false
+	if not player.lunge(synergies.assault_speed, synergies.assault_duration):
+		return false
+	_lunging = true
+	_lunge_hit.clear()
+	_play_from_start(&"lunge")
+	Sfx.play(self, &"swing_heavy", -2.0, 0.08)
+	return true
 
 
 func wants_other_hand_lowered() -> bool:
@@ -65,18 +140,20 @@ func is_exclusive() -> bool:
 	return _is_critical()
 
 
-## Invincibile durante riposte e backstab.
+## Invincibile durante riposte, backstab e l'affondo dell'Assalto.
 func is_invulnerable() -> bool:
-	return _is_critical()
+	return _is_critical() or _lunging
 
 
 func can_switch() -> bool:
-	return not _is_slashing() and not _is_critical()
+	return not _is_slashing() and not _is_critical() and not _charging and not _lunging
 
 
 func reset_state() -> void:
 	_critical_target = null
 	_attack_queued = false
+	_charging = false
+	_lunging = false
 
 
 func _slash() -> void:

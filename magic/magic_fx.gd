@@ -6,7 +6,7 @@ class_name MagicFX
 ##   MagicFX.flash(root, pos, color)                  lampo di luce che si spegne
 ##   MagicFX.shockwave(root, pos, normal, color)      anello che si allarga e svanisce
 ##   MagicFX.sparks(root, pos, dir, color)            schizzo di scintille
-##   var beam := MagicFX.beam(root, color)            raggio tra due punti (vedi la classe Beam)
+##   (il raggio tra due punti è in magic/magic_beam.gd, classe MagicBeam)
 
 
 ## Luce puntiforme che parte forte e si spegne in `duration` secondi.
@@ -36,7 +36,7 @@ static func shockwave(root: Node, pos: Vector3, normal: Vector3, color: Color,
 	var ring := MeshInstance3D.new()
 	ring.mesh = torus
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	ring.layers = Gore.NO_BLOOD_LAYER
+	ring.layers = Layers.NO_BLOOD
 	root.add_child(ring)
 	# Il toro sta nel piano XZ: il suo asse Y va lungo la normale.
 	ring.global_transform = Transform3D(basis_along(normal), pos)
@@ -56,7 +56,7 @@ static func sparks(root: Node, pos: Vector3, direction: Vector3, color: Color, a
 	box.size = Vector3.ONE * size
 	box.material = glow(color.lightened(0.3), 3.0)
 	p.mesh = box
-	p.layers = Gore.NO_BLOOD_LAYER
+	p.layers = Layers.NO_BLOOD
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.one_shot = true
 	p.explosiveness = 1.0
@@ -79,13 +79,6 @@ static func sparks(root: Node, pos: Vector3, direction: Vector3, color: Color, a
 	root.add_child(p)
 	p.global_position = pos
 	p.emitting = true
-
-
-## Crea un raggio (vedi Beam) e lo aggiunge alla scena.
-static func beam(root: Node, color: Color, core_radius := 0.022, halo_radius := 0.085) -> Beam:
-	var b := Beam.new(color, core_radius, halo_radius)
-	root.add_child(b)
-	return b
 
 
 ## Materiale luminoso pieno (nuclei, schegge).
@@ -118,62 +111,3 @@ static func basis_along(dir: Vector3) -> Basis:
 	var x := ref.cross(y).normalized()
 	var z := x.cross(y)
 	return Basis(x, y, z)
-
-
-## Raggio luminoso tra due punti: un nucleo chiaro e un alone colorato (cilindri additivi).
-## Si aggiorna con set_points() e si spegne con fade(), che poi lo distrugge.
-class Beam extends Node3D:
-	var _core: MeshInstance3D
-	var _halo: MeshInstance3D
-	var _core_mat: StandardMaterial3D
-	var _halo_mat: StandardMaterial3D
-	var _time := 0.0
-
-	func _init(color: Color, core_radius := 0.022, halo_radius := 0.085) -> void:
-		_core_mat = MagicFX.additive(color.lightened(0.7), 1.0)
-		_halo_mat = MagicFX.additive(color, 0.45)
-		_core = _cylinder(core_radius, _core_mat)
-		_halo = _cylinder(halo_radius, _halo_mat)
-		add_child(_core)
-		add_child(_halo)
-		visible = false
-
-	func _cylinder(radius: float, mat: Material) -> MeshInstance3D:
-		var cyl := CylinderMesh.new()
-		cyl.top_radius = radius
-		cyl.bottom_radius = radius
-		cyl.height = 1.0
-		cyl.radial_segments = 6
-		cyl.rings = 1
-		cyl.cap_top = false
-		cyl.cap_bottom = false
-		cyl.material = mat
-		var mi := MeshInstance3D.new()
-		mi.mesh = cyl
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.layers = Gore.NO_BLOOD_LAYER
-		return mi
-
-	## Il raggio va da `from` a `to`.
-	func set_points(from: Vector3, to: Vector3) -> void:
-		var length := from.distance_to(to)
-		if length < 0.01:
-			visible = false
-			return
-		visible = true
-		var b := MagicFX.basis_along(to - from)
-		global_transform = Transform3D(Basis(b.x, b.y * length, b.z), (from + to) / 2.0)
-
-	func _process(delta: float) -> void:
-		# L'alone "trema" un po': sembra energia, non un tubo.
-		_time += delta
-		var wobble := 1.0 + 0.25 * sin(_time * 70.0)
-		_halo.scale = Vector3(wobble, 1.0, wobble)
-
-	## Il raggio si assottiglia e svanisce in `duration` secondi, poi si distrugge.
-	func fade(duration := 0.35) -> void:
-		var tween := create_tween().set_parallel()
-		tween.tween_property(_core_mat, "albedo_color:a", 0.0, duration)
-		tween.tween_property(_halo_mat, "albedo_color:a", 0.0, duration * 0.8)
-		tween.tween_property(_core, "scale", Vector3(0.2, 1.0, 0.2), duration)
-		tween.chain().tween_callback(queue_free)

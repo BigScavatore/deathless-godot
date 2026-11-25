@@ -12,6 +12,14 @@ extends Node
 ##       ogni fendente della spada che va a segno carica il cristallo (fino a max_charges);
 ##       il prossimo incantesimo del bastone consuma le cariche e parte moltiplicato a ventaglio
 ##       (le schegge in più sono gratis).
+##   ASSALTO       spada + brocchiero (in qualunque mano)
+##       tenendo premuto il tasto della spada la si carica; rilasciandolo dopo hold_time parte un
+##       affondo in dash (usa una carica del dash) che trafigge tutti i nemici sulla traiettoria.
+##       Un tocco breve resta un fendente normale.
+##   SPECCHIO ARCANO  bastone + brocchiero (in qualunque mano)
+##       le schegge del bastone rimbalzano sui muri (fino a bounces volte); se tornano verso di te
+##       e le respingi con lo scudo (parata, o meglio ancora parry) ripartono verso il mirino più
+##       veloci e più forti, con i rimbalzi ricaricati.
 ##
 ## Per aggiungerne una: una costante qui, il riconoscimento della coppia in refresh(), i suoi
 ## effetti negli on_* e una voce in NAMES (la HUD mostra nome e contatore da hud_info()).
@@ -23,9 +31,16 @@ enum CastResult { NONE, OK, NO_MANA }
 
 const ORBS := &"orbs"
 const CHARGE := &"charge"
-const NAMES := {ORBS: "Globi arcani", CHARGE: "Lama arcana"}
+const ASSAULT := &"assault"
+const MIRROR := &"mirror"
+const NAMES := {ORBS: "Globi arcani", CHARGE: "Lama arcana", ASSAULT: "Assalto", MIRROR: "Specchio arcano"}
 ## Spiegazione breve, mostrata dalla HUD quando la sinergia si attiva.
-const HINTS := {ORBS: "il bastone evoca globi, la spada li scaglia", CHARGE: "i colpi di spada caricano il bastone"}
+const HINTS := {
+	ORBS: "il bastone evoca globi, la spada li scaglia",
+	CHARGE: "i colpi di spada caricano il bastone",
+	ASSAULT: "tieni premuto il tasto della spada: affondo in dash",
+	MIRROR: "le schegge rimbalzano: respingile con lo scudo",
+}
 
 @export_group("Globi arcani")
 @export var orb_cost := 12.0
@@ -43,6 +58,18 @@ const HINTS := {ORBS: "il bastone evoca globi, la spada li scaglia", CHARGE: "i 
 ## Apertura del ventaglio tra una scheggia e l'altra (gradi).
 @export var fan_spread_deg := 6.0
 
+@export_group("Assalto")
+## Secondi da tenere premuto per caricare l'affondo.
+@export var assault_hold_time := 0.3
+@export var assault_speed := 32.0
+@export var assault_duration := 0.28
+@export var assault_damage := 45.0
+## Raggio (m) attorno alla punta della spada in cui l'affondo colpisce.
+@export var assault_radius := 1.3
+
+@export_group("Specchio arcano")
+@export var mirror_bounces := 3
+
 ## La sinergia attiva (vuota = nessuna).
 var active := &""
 var player: Node3D
@@ -58,10 +85,15 @@ func refresh(right: Weapon, left: Weapon) -> void:
 	var r := right.kind if right else &""
 	var l := left.kind if left else &""
 	var next := &""
+	var pair := [r, l]
 	if l == &"staff" and r == &"sword":
 		next = ORBS
 	elif r == &"staff" and l == &"sword":
 		next = CHARGE
+	elif pair.has(&"sword") and pair.has(&"shield"):
+		next = ASSAULT
+	elif pair.has(&"staff") and pair.has(&"shield"):
+		next = MIRROR
 	for weapon in [right, left]:
 		if weapon and weapon.has_method("current_spell") and weapon.current_spell():
 			_color = weapon.current_spell().color
@@ -87,6 +119,10 @@ func hud_info() -> Dictionary:
 			return {"name": NAMES[ORBS], "count": _orbs.size(), "max": max_orbs, "color": _color}
 		CHARGE:
 			return {"name": NAMES[CHARGE], "count": _charges, "max": max_charges, "color": _color}
+		ASSAULT:
+			return {"name": NAMES[ASSAULT], "count": 0, "max": 0, "color": Color(0.9, 0.75, 0.5)}
+		MIRROR:
+			return {"name": NAMES[MIRROR], "count": 0, "max": 0, "color": _color}
 	return {}
 
 
@@ -145,6 +181,18 @@ func on_sword_slash(sword: Weapon, landed: bool) -> void:
 			_charges += 1
 			Sfx.play(sword, &"charge_gain", -4.0, 0.05)
 			counter_changed.emit(_charges)
+
+
+## Modifiche per gli incantesimi del bastone (vedi Spell.cast): "Specchio arcano" li fa rimbalzare.
+func spell_mods(_staff: Weapon) -> Dictionary:
+	if active == MIRROR:
+		return {"bounces": mirror_bounces, "reflectable": true}
+	return {}
+
+
+## true se la spada può caricare l'affondo ("Assalto").
+func can_assault(sword: Weapon) -> bool:
+	return active == ASSAULT and sword.kind == &"sword"
 
 
 ## Il bastone lancia il suo incantesimo: con "Lama arcana" (bastone a destra) consuma le cariche

@@ -4,6 +4,11 @@ extends Node3D
 ## così anche a velocità alte non attraversa muri o nemici sottili.
 ## Dietro di sé lascia un raggio di luce che parte dal bastone: quando colpisce, il raggio
 ## resta acceso un attimo e poi svanisce. Mesh, luce e scia sono costruiti da codice.
+##
+## Rimbalzi (sinergia "Specchio arcano", bastone + scudo): con `bounces` > 0 la scheggia rimbalza
+## sui muri invece di fermarsi (ogni tratto lascia il suo raggio). Se torna verso chi l'ha lanciata
+## e lui la respinge con lo scudo (parata o parry, vedi player.reflect_strength), riparte verso il
+## mirino più veloce e più forte, con i rimbalzi ricaricati.
 
 var damage := 28.0
 var speed := 75.0
@@ -12,11 +17,17 @@ var color := Color(0.62, 0.42, 1.0)
 var caster: Node3D
 ## Secondi prima che sparisca se non colpisce niente.
 var lifetime := 2.0
+## Quante volte può ancora rimbalzare sui muri (0 = si ferma al primo impatto).
+var bounces := 0
+## Se true, lo scudo di chi l'ha lanciata può respingerla.
+var reflectable := false
 
 var _exclude: Array[RID] = []
 var _start := Vector3.ZERO
-var _beam: MagicFX.Beam
+var _beam: MagicBeam
 var _done := false
+var _max_bounces := 0
+var _travelled := 0.0
 
 
 func _ready() -> void:
@@ -28,7 +39,7 @@ func _ready() -> void:
 	shard.mesh = _shard_mesh()
 	shard.material_override = MagicFX.glow(color, 5.0)
 	shard.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	shard.layers = Gore.NO_BLOOD_LAYER
+	shard.layers = Layers.NO_BLOOD
 	shard.scale = Vector3.ONE * 1.6
 	add_child(shard)
 
@@ -41,7 +52,7 @@ func _ready() -> void:
 	sphere.material = MagicFX.additive(color, 0.35)
 	halo.mesh = sphere
 	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	halo.layers = Gore.NO_BLOOD_LAYER
+	halo.layers = Layers.NO_BLOOD
 	add_child(halo)
 
 	var light := OmniLight3D.new()
@@ -55,7 +66,7 @@ func _ready() -> void:
 	box.size = Vector3.ONE * 0.05
 	box.material = MagicFX.glow(color.lightened(0.3), 3.0)
 	trail.mesh = box
-	trail.layers = Gore.NO_BLOOD_LAYER
+	trail.layers = Layers.NO_BLOOD
 	trail.amount = 40
 	trail.lifetime = 0.35
 	trail.local_coords = false
@@ -72,7 +83,10 @@ func _ready() -> void:
 	trail.scale_amount_curve = shrink
 	add_child(trail)
 
-	_beam = MagicFX.beam(get_tree().current_scene, color)
+	_max_bounces = bounces
+	if bounces > 0:
+		lifetime += 0.6 * bounces
+	_new_beam()
 
 
 func _physics_process(delta: float) -> void:
@@ -82,8 +96,11 @@ func _physics_process(delta: float) -> void:
 	if lifetime <= 0.0:
 		_finish()
 		return
+	if reflectable and _try_reflect():
+		return
 	var from := global_position
 	var to := from - global_basis.z * speed * delta
+	_travelled += speed * delta
 	var ray := PhysicsRayQueryParameters3D.create(from, to, 1, _exclude)
 	var hit := get_world_3d().direct_space_state.intersect_ray(ray)
 	if hit.is_empty():
@@ -93,7 +110,11 @@ func _physics_process(delta: float) -> void:
 	global_position = hit.position
 	_beam.set_points(_start, hit.position)
 	var target := hit.collider as Node
-	if target and target.has_method("take_damage"):
+	var damageable := target != null and target.has_method("take_damage")
+	if not damageable and bounces > 0:
+		_bounce(hit.position, hit.normal)
+		return
+	if damageable:
 		var result = target.take_damage(damage, caster if is_instance_valid(caster) else self)
 		if result != Combat.HitResult.IGNORED:
 			Combat.hitstop(self, 0.05)
@@ -101,6 +122,71 @@ func _physics_process(delta: float) -> void:
 				caster.add_shake(0.15)
 	_impact(hit.position, hit.normal)
 	_finish()
+
+
+## Rimbalza sul muro: nuova direzione riflessa, nuovo tratto di raggio, scintille piccole.
+func _bounce(at: Vector3, normal: Vector3) -> void:
+	bounces -= 1
+	var dir := (-global_basis.z).bounce(normal).normalized()
+	global_position = at + normal * 0.05
+	_look_along(dir)
+	_new_beam()
+	var root := get_tree().current_scene
+	Sfx.play_at(self, &"shard_hit", at, -8.0, 0.2, 4.0)
+	MagicFX.sparks(root, at + normal * 0.05, normal, color, 12, 60.0, Vector2(2.0, 6.0), 0.04, 0.35)
+	MagicFX.flash(root, at + normal * 0.3, color, 3.0, 3.0, 0.15)
+
+
+## Se sta tornando verso chi l'ha lanciata, ed è vicina, prova a farsi respingere dal suo scudo.
+func _try_reflect() -> bool:
+	if not is_instance_valid(caster) or not caster.has_method("reflect_strength") or _travelled < 3.0:
+		return false
+	var chest := caster.global_position + Vector3.UP * 1.2
+	var to_caster := chest - global_position
+	if to_caster.length() > 1.8 or (-global_basis.z).dot(to_caster) <= 0.0:
+		return false
+	var strength: float = caster.reflect_strength(global_position)
+	if strength <= 0.0:
+		return false
+	# Respinta: riparte verso il mirino, più veloce e più forte, con i rimbalzi ricaricati.
+	speed *= strength
+	damage *= strength
+	bounces = _max_bounces
+	lifetime = maxf(lifetime, 1.5 + 0.6 * bounces)
+	_travelled = 0.0
+	var camera := get_viewport().get_camera_3d()
+	var target := camera.global_position - camera.global_basis.z * 100.0
+	var hit := get_world_3d().direct_space_state.intersect_ray(
+			PhysicsRayQueryParameters3D.create(camera.global_position, target, 1, _exclude))
+	if not hit.is_empty():
+		target = hit.position
+	_look_along((target - global_position).normalized())
+	color = color.lightened(0.15)
+	_new_beam()
+	var root := get_tree().current_scene
+	MagicFX.shockwave(root, global_position, -global_basis.z, color, 0.2, 1.6, 0.25)
+	MagicFX.sparks(root, global_position, -global_basis.z, Color.WHITE, 18, 50.0, Vector2(4.0, 10.0), 0.04, 0.35)
+	MagicFX.flash(root, global_position, color, 6.0, 5.0, 0.2)
+	Sfx.play_at(self, &"parry" if strength > 1.5 else &"block", global_position, -2.0, 0.08, 6.0)
+	Combat.hitstop(self, 0.05)
+	if caster.has_method("add_shake"):
+		caster.add_shake(0.25)
+	return true
+
+
+func _look_along(dir: Vector3) -> void:
+	if dir.length() < 0.5:
+		return
+	global_basis = Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
+
+
+## Chiude il tratto di raggio attuale (che svanisce) e ne inizia uno nuovo da qui.
+func _new_beam() -> void:
+	if is_instance_valid(_beam):
+		_beam.fade(0.4)
+	_start = global_position
+	_beam = MagicBeam.new(color)
+	get_tree().current_scene.add_child(_beam)
 
 
 ## Si ferma: il raggio svanisce, la scheggia sparisce poco dopo (la scia finisce di dissolversi).

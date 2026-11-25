@@ -375,7 +375,7 @@ func _setup_flash() -> void:
 	_flash_material.albedo_color = Color(1, 1, 1, 0)
 	for child in $Model.find_children("*", "MeshInstance3D", true, false):
 		(child as MeshInstance3D).material_overlay = _flash_material
-		(child as MeshInstance3D).layers = Gore.NO_BLOOD_LAYER  # il sangue a terra non gli sale addosso
+		(child as MeshInstance3D).layers = Layers.NO_BLOOD  # il sangue a terra non gli sale addosso
 
 
 func _flash(color: Color, duration := 0.25) -> void:
