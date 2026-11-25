@@ -390,47 +390,6 @@ def snd_gib_splat(rng):
     return dirty(fade_out(x), rng, drive=3.0)
 
 
-def snd_spell_shard(rng):
-    """Scheggia magica lanciata: "zing" cristallino che sale + soffio."""
-    d = 0.45
-    n = int(d * SR)
-    t = np.arange(n) / SR
-    x = np.zeros(n)
-    for k, f0 in enumerate((900, 1350, 2020)):                      # parziali cristalline che salgono
-        f = f0 * rng.uniform(0.95, 1.05) * (1.0 + 0.6 * (1 - np.exp(-t / 0.05)))
-        x += np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / (0.12 - 0.03 * k)) / (k + 1)
-    x += 0.8 * whoosh(rng, d, 400, 2400, 900, q=1.4, peak_at=0.12)
-    return dirty(fade_out(x, 0.05), rng, drive=1.6, tone=3200.0, wet=0.25)
-
-
-def snd_shard_hit(rng):
-    """La scheggia si frantuma: tintinnio di vetro + piccolo colpo."""
-    d = 0.5
-    x = 0.8 * thud(rng, d, 200, 80, 0.04)
-    for _ in range(7):
-        place(x, metal(rng, 0.25, rng.uniform(2200, 4200), 0.04, partials=3, bright=0.9), rng.exponential(0.03), rng.uniform(0.2, 0.5))
-    x += 0.7 * grains(rng, d, 40, length=0.003, cutoff=3000, decay=0.06)
-    return dirty(fade_out(x, 0.05), rng, drive=1.8, tone=3500.0, wet=0.25)
-
-
-def snd_spell_fizzle(rng):
-    """Niente mana: sfrigolio che si spegne."""
-    d = 0.35
-    n = int(d * SR)
-    crackle = white(rng, n) * (rng.random(n) < 0.05)
-    x = svf(crackle, 1800.0, 1.2, "band") * 3.0 * env_exp(n, 0.12)
-    x += 0.5 * svf(white(rng, n), np.linspace(1200, 300, n), 2.0, "band") * env_exp(n, 0.1)
-    return dirty(fade_out(x), rng, drive=2.0)
-
-
-def snd_spell_switch(rng):
-    """Cambio incantesimo: rintocco breve e basso, come una campana di cristallo smorzata."""
-    d = 0.5
-    x = metal(rng, d, rng.uniform(600, 700), 0.12, partials=4, spread=0.6, bright=0.4)
-    x += 0.4 * whoosh(rng, d, 300, 900, 400, q=1.2, peak_at=0.2)
-    return dirty(fade_out(x, 0.05), rng, drive=1.5, tone=2600.0)
-
-
 SOUNDS = {  # nome: (funzione, varianti)
     "swing": (snd_swing, 3),
     "swing_heavy": (snd_swing_heavy, 2),
@@ -453,10 +412,6 @@ SOUNDS = {  # nome: (funzione, varianti)
     "equip": (snd_equip, 1),
     "gore_burst": (snd_gore_burst, 3),   # in fondo: i seed degli altri suoni non cambiano
     "gib_splat": (snd_gib_splat, 3),
-    "spell_shard": (snd_spell_shard, 3),
-    "shard_hit": (snd_shard_hit, 3),
-    "spell_fizzle": (snd_spell_fizzle, 2),
-    "spell_switch": (snd_spell_switch, 1),
 }
 
 

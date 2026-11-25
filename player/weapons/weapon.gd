@@ -12,7 +12,7 @@ extends Node3D
 ##   "equip"    estrazione; se manca "unequip", viene riprodotta al contrario per riporre l'arma
 ##   "unequip"  riposizione
 
-## Nome mostrato nell'interfaccia.
+## Nome mostrato nell'interfaccia (futuro HUD / ruota armi).
 @export var display_name := "Arma"
 ## Effetto sonoro quando si estrae l'arma (vedi audio/sfx.gd); vuoto = nessuno.
 @export var equip_sound := &""
@@ -46,17 +46,6 @@ func secondary_released() -> void:
 ## Parry (F / tasto laterale del mouse / RB).
 func parry_pressed() -> void:
 	pass
-
-
-## Modalità successiva (R / X sul pad): es. cambia incantesimo sul bastone.
-func next_mode_pressed() -> void:
-	pass
-
-
-## Informazioni extra per la HUD (vedi player/hud.gd). Chiavi riconosciute:
-##   "spell": Spell selezionato, "spells": Array[Spell] disponibili, "ready": 0..1 (ricarica)
-func hud_info() -> Dictionary:
-	return {}
 
 
 ## false mentre l'arma non vuole essere interrotta (es. a metà di un fendente).
