@@ -6,8 +6,9 @@ extends CanvasLayer
 ##
 ##   in basso a sinistra   vita (numero grande, barra sottile con la parte persa che si svuota
 ##                         in ritardo), mana, cariche del dash
-##   in basso al centro    le due mani: il modello 3D dell'arma che ruota (sinistra a sinistra,
-##                         destra a destra), le tacche delle armi della mano e il tasto per cambiarla;
+##   in basso al centro    le due mani: un'immagine stilizzata dell'arma (il suo modello 3D in
+##                         due toni color osso con contorno nero, che dondola piano; sinistra a
+##                         sinistra, destra a destra), le tacche delle armi della mano e il tasto;
 ##                         quando cambi arma o incantesimo il nome compare per un attimo sopra.
 ##                         Sopra ancora, la sinergia attiva tra le due armi con il suo contatore.
 ##   al centro             mirino (col bastone: rombo del colore dell'incantesimo e ricarica),
@@ -26,6 +27,24 @@ void fragment() {
 	float n = texture(grime, FRAGCOORD.xy / grime_size).r;
 	COLOR.rgb *= mix(0.7, 1.06, n);
 	COLOR.a *= smoothstep(erosion - 0.12, erosion + 0.04, n);
+}
+"""
+
+const OUTLINE_SHADER := """
+shader_type canvas_item;
+// Contorno scuro attorno alle immagini delle armi (dove la texture è trasparente ma un vicino no).
+uniform float width = 5.0;  // in pixel della texture (160 px, disegnata a ~66: sullo schermo ~2 px)
+uniform vec4 outline_color : source_color = vec4(0.03, 0.02, 0.02, 1.0);
+void fragment() {
+	vec4 base = COLOR;
+	float a = 0.0;
+	for (int x = -2; x <= 2; x++) {
+		for (int y = -2; y <= 2; y++) {
+			vec2 offset = vec2(float(x), float(y)) * TEXTURE_PIXEL_SIZE * width * 0.5;
+			a = max(a, texture(TEXTURE, UV + offset).a);
+		}
+	}
+	COLOR = mix(vec4(outline_color.rgb, a * outline_color.a), base, base.a);
 }
 """
 
@@ -74,6 +93,11 @@ func _ready() -> void:
 	# Prima i modelli delle armi (senza shader), sopra tutto il resto (con lo shader "grime").
 	var previews := PreviewCanvas.new()
 	previews.hud = self
+	var outline := Shader.new()
+	outline.code = OUTLINE_SHADER
+	var outline_mat := ShaderMaterial.new()
+	outline_mat.shader = outline
+	previews.material = outline_mat
 	previews.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	previews.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(previews)
@@ -171,6 +195,9 @@ func _process(_delta: float) -> void:
 		var weapon := _hand(hand)
 		if preview.shown != weapon:
 			preview.show_weapon(weapon)
+		var spell: Spell = weapon.hud_info().get("spell") if weapon else null
+		if spell:
+			preview.set_accent(spell.color)
 		var label := _hand_label(weapon)
 		if label != _hand_seen[hand]:
 			if _hand_seen[hand] != "":
@@ -374,14 +401,13 @@ func _draw_previews(ci: Control) -> void:
 			continue
 		var box := _preview_rect(ci.size, hand)
 		var preview: WeaponPreview = _previews[hand]
-		ci.draw_circle(box.get_center(), box.size.x * 0.42, Color(0, 0, 0, 0.28))
 		ci.draw_texture_rect(preview.get_texture(), box, false)
 
 
 ## Dove sta il modello di una mano: in basso, appena a sinistra o a destra del centro.
 func _preview_rect(size: Vector2, hand: Weapon.Hand) -> Rect2:
-	var s := 54.0
-	var gap := 10.0
+	var s := 66.0
+	var gap := 8.0
 	var x := size.x / 2.0 + gap if hand == RIGHT else size.x / 2.0 - gap - s
 	return Rect2(x, size.y - 18.0 - s, s, s)
 
@@ -545,12 +571,21 @@ func _make_vignette() -> GradientTexture2D:
 
 # --- Anteprima 3D delle armi -------------------------------------------------
 
-## Mini scena 3D (mondo a parte) con il modello dell'arma che ruota piano; la HUD ne disegna la texture.
+## Mini scena 3D (mondo a parte) con il modello dell'arma reso "stilizzato": colore osso piatto in due
+## toni (luce toon), il cristallo del bastone nel colore dell'incantesimo, e un dondolio lento invece
+## della rotazione completa (così la sagoma resta sempre riconoscibile). La HUD ne disegna la texture
+## con uno shader che aggiunge il contorno nero.
 class WeaponPreview extends SubViewport:
+	const FILL := Color(0.86, 0.8, 0.68)
+
 	var shown: Weapon
 	var _camera: Camera3D
 	var _tilt: Node3D
 	var _spinner: Node3D
+	var _base_spin := 0.0
+	var _time := 0.0
+	var _toon: StandardMaterial3D
+	var _accent: StandardMaterial3D
 
 	func _init() -> void:
 		size = Vector2i(160, 160)
@@ -563,24 +598,31 @@ class WeaponPreview extends SubViewport:
 		var env := Environment.new()
 		env.background_mode = Environment.BG_CLEAR_COLOR
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		env.ambient_light_color = Color(0.4, 0.36, 0.32)
-		env.ambient_light_energy = 0.7
+		env.ambient_light_color = Color(1, 1, 1)
+		env.ambient_light_energy = 0.45
 		_camera.environment = env
 		add_child(_camera)
 		var key := DirectionalLight3D.new()
-		key.rotation = Vector3(deg_to_rad(-35), deg_to_rad(40), 0)
-		key.light_color = Color(1.0, 0.85, 0.65)
-		key.light_energy = 1.6
+		key.rotation = Vector3(deg_to_rad(-35), deg_to_rad(35), 0)
+		key.light_energy = 0.75
 		add_child(key)
-		var rim := DirectionalLight3D.new()
-		rim.rotation = Vector3(deg_to_rad(-10), deg_to_rad(-150), 0)
-		rim.light_color = Color(0.55, 0.62, 1.0)
-		rim.light_energy = 1.0
-		add_child(rim)
 		_tilt = Node3D.new()
 		add_child(_tilt)
 		_spinner = Node3D.new()
 		_tilt.add_child(_spinner)
+		# Due toni: parte in luce color osso, parte in ombra più scura (DIFFUSE_TOON).
+		_toon = StandardMaterial3D.new()
+		_toon.albedo_color = FILL
+		_toon.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+		_toon.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+		_toon.roughness = 1.0
+		_accent = StandardMaterial3D.new()
+		_accent.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_accent.albedo_color = Color(0.7, 0.55, 1.0)
+
+	## Colore delle parti magiche (cristallo del bastone).
+	func set_accent(color: Color) -> void:
+		_accent.albedo_color = color.lightened(0.25)
 
 	## Mostra il modello dell'arma (null = niente).
 	func show_weapon(weapon: Weapon) -> void:
@@ -597,6 +639,8 @@ class WeaponPreview extends SubViewport:
 		var best: MeshInstance3D
 		for child in model.find_children("*", "MeshInstance3D", true, false):
 			var mi := child as MeshInstance3D
+			mi.material_override = _accent if mi.name == "Crystal" else _toon
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			if mi.mesh and (best == null or mi.mesh.get_aabb().size.length() > best.mesh.get_aabb().size.length()):
 				best = mi
 		if best == null:
@@ -615,9 +659,13 @@ class WeaponPreview extends SubViewport:
 		_spinner.add_child(holder)
 		# Le armi lunghe (spada, bastone) stanno in diagonale, così riempiono il riquadro.
 		var long := aabb.size.y > 1.8 * maxf(aabb.size.x, aabb.size.z)
-		_tilt.rotation = Vector3(0.2, 0.0, -0.75 if long else 0.0)
+		_tilt.rotation = Vector3(0.15, 0.0, -0.78 if long else 0.0)
+		# Lo scudo ha la faccia verso -Z (verso i nemici): lo si gira per mostrare il davanti.
+		_base_spin = PI if weapon.kind == &"shield" else 0.0
 		var extent := aabb.size.length() * 0.5
-		_camera.position = Vector3(0, 0, extent / tan(deg_to_rad(_camera.fov * 0.5)) * 1.08)
+		_camera.position = Vector3(0, 0, extent / tan(deg_to_rad(_camera.fov * 0.5)) * 1.12)
 
 	func _process(delta: float) -> void:
-		_spinner.rotate_y(delta * 1.1)
+		# Dondolio lento: mostra un po' di volume senza mai mettere l'arma di taglio.
+		_time += delta
+		_spinner.rotation.y = _base_spin + sin(_time * 0.9) * 0.5
