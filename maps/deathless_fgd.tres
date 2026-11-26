@@ -1,0 +1,94 @@
+[gd_resource type="Resource" script_class="FuncGodotFGDFile" load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://addons/func_godot/src/fgd/func_godot_fgd_file.gd" id="1_file"]
+[ext_resource type="Script" path="res://addons/func_godot/src/fgd/func_godot_fgd_point_class.gd" id="2_point"]
+[ext_resource type="Resource" path="res://addons/func_godot/fgd/func_godot_fgd.tres" id="3_base"]
+[ext_resource type="PackedScene" path="res://player/player.tscn" id="4_player"]
+[ext_resource type="Script" path="res://enemies/enemy_spawner.gd" id="5_spawner"]
+[ext_resource type="Script" path="res://world/map_text.gd" id="6_text"]
+[ext_resource type="Script" path="res://world/map_light.gd" id="7_light"]
+
+[sub_resource type="Resource" id="Resource_player_start"]
+script = ExtResource("2_point")
+scene_file = ExtResource("4_player")
+classname = "info_player_start"
+description = "Dove parte il player. La freccia indica dove guarda."
+meta_properties = Dictionary[String, Variant]({
+"color": Color(0.3, 0.9, 0.3, 1),
+"size": AABB(-12, -12, 0, 12, 12, 56)
+})
+
+[sub_resource type="Resource" id="Resource_knight"]
+script = ExtResource("2_point")
+script_class = ExtResource("5_spawner")
+classname = "monster_knight"
+description = "Cavaliere nemico. respawn = 1 lo fa ricomparire dopo respawn_delay secondi dalla morte."
+class_properties = Dictionary[String, Variant]({
+"respawn": false,
+"respawn_delay": 6.0
+})
+class_property_descriptions = Dictionary[String, Variant]({
+"respawn": "Ricompare dopo la morte (0/1)",
+"respawn_delay": "Secondi prima di ricomparire"
+})
+meta_properties = Dictionary[String, Variant]({
+"color": Color(0.9, 0.2, 0.2, 1),
+"size": AABB(-14, -14, 0, 14, 14, 60)
+})
+node_class = "Marker3D"
+
+[sub_resource type="Resource" id="Resource_text"]
+script = ExtResource("2_point")
+script_class = ExtResource("6_text")
+classname = "info_text"
+description = "Scritta nel mondo. La freccia punta verso chi legge. \"|\" va a capo; pitch -90 = sdraiata sul pavimento."
+class_properties = Dictionary[String, Variant]({
+"message": "",
+"size": 64.0,
+"color": Color(0.84, 0.78, 0.66, 1),
+"pitch": 0.0
+})
+class_property_descriptions = Dictionary[String, Variant]({
+"message": "Testo (| = a capo)",
+"size": "Grandezza del carattere",
+"color": "Colore r g b (0-255)",
+"pitch": "Inclinazione: 0 = sul muro, -90 = sul pavimento"
+})
+meta_properties = Dictionary[String, Variant]({
+"color": Color(0.9, 0.8, 0.5, 1),
+"size": AABB(-8, -8, -8, 8, 8, 8)
+})
+node_class = "Node3D"
+
+[sub_resource type="Resource" id="Resource_light"]
+script = ExtResource("2_point")
+script_class = ExtResource("7_light")
+classname = "light_torch"
+description = "Luce calda che tremola, con una piccola fiamma (torcia o braciere)."
+class_properties = Dictionary[String, Variant]({
+"color": Color(1, 0.62, 0.32, 1),
+"energy": 1.6,
+"range": 9.0,
+"flicker": true,
+"flame": true,
+"shadows": false
+})
+class_property_descriptions = Dictionary[String, Variant]({
+"color": "Colore r g b (0-255)",
+"energy": "Intensità",
+"range": "Raggio in metri",
+"flicker": "Tremola (0/1)",
+"flame": "Mostra la fiamma (0/1)",
+"shadows": "Proietta ombre (0/1, più pesante)"
+})
+meta_properties = Dictionary[String, Variant]({
+"color": Color(1, 0.6, 0.2, 1),
+"size": AABB(-6, -6, -6, 6, 6, 6)
+})
+node_class = "OmniLight3D"
+
+[resource]
+script = ExtResource("1_file")
+fgd_name = "Deathless"
+base_fgd_files = Array[Resource]([ExtResource("3_base")])
+entity_definitions = Array[Resource]([SubResource("Resource_player_start"), SubResource("Resource_knight"), SubResource("Resource_text"), SubResource("Resource_light")])

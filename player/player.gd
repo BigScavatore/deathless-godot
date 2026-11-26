@@ -129,6 +129,8 @@ var _sliding := false
 var _slide_dir := Vector3.ZERO
 var _crouch := 0.0  # 0 = in piedi, 1 = abbassato (scivolata)
 var _slamming := false
+## Dopo uno slam si resta fermi a terra: la scivolata riparte solo rilasciando e ripremendo il tasto.
+var _slide_locked := false
 var _slam_jump_time := 0.0
 var _locked_time := 0.0
 
@@ -194,8 +196,10 @@ func _physics_process(delta: float) -> void:
 	if _dash_time_left <= 0.0 and not _slamming:
 		if Input.is_action_just_pressed("slide") and not is_on_floor():
 			_start_slam()
-		elif Input.is_action_pressed("slide") and is_on_floor() and not _sliding:
+		elif Input.is_action_pressed("slide") and is_on_floor() and not _sliding and not _slide_locked:
 			_start_slide()
+	if _slide_locked and not Input.is_action_pressed("slide"):
+		_slide_locked = false
 
 	if _slamming:
 		_process_slam()
@@ -520,6 +524,7 @@ func _process_slam() -> void:
 
 func _land_slam() -> void:
 	_slamming = false
+	_slide_locked = true  # niente scivolata subito dopo: il colpo "pianta" a terra
 	_slam_jump_time = slam_jump_window
 	velocity = Vector3.ZERO
 	add_shake(0.6)

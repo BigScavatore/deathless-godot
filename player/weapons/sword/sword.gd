@@ -203,15 +203,15 @@ func _find_critical_target() -> Node3D:
 		var distance := to_target.length()
 		if distance < 0.01 or forward.dot(to_target / distance) < critical_aim:
 			continue
-		var kind := &""
+		var found := &""
 		if distance <= riposte_range and target.can_be_riposted():
-			kind = &"riposte"
+			found = &"riposte"
 		elif distance <= backstab_range and target.can_be_backstabbed(player.global_position):
-			kind = &"backstab"
-		if kind != &"" and distance < best_distance:
+			found = &"backstab"
+		if found != &"" and distance < best_distance:
 			best = target
 			best_distance = distance
-			_critical_kind = kind
+			_critical_kind = found
 	return best
 
 

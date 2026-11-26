@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="Deathless"
+run/main_scene="res://levels/tutorial.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -31,3 +32,11 @@ window/stretch/aspect="expand"
 
 rendering_device/driver.windows="d3d12"
 textures/decals/filter=2
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/func_godot/plugin.cfg")
+
+[func_godot]
+
+default_map_settings="res://maps/deathless_map_settings.tres"

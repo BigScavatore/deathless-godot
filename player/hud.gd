@@ -636,7 +636,7 @@ class WeaponPreview extends SubViewport:
 			return
 		var model := (load(source.scene_file_path) as PackedScene).instantiate() as Node3D
 		# La mesh più grande è il corpo dell'arma: la si mette dritta (asse Y in su) e centrata.
-		var best: MeshInstance3D
+		var best: MeshInstance3D = null
 		for child in model.find_children("*", "MeshInstance3D", true, false):
 			var mi := child as MeshInstance3D
 			mi.material_override = _accent if mi.name == "Crystal" else _toon
