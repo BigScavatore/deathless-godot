@@ -29,7 +29,8 @@ const BLOOD_EDGE := Color(0.40, 0.035, 0.03)
 const BLOOD_WET := Color(0.58, 0.14, 0.11)
 const FLESH_COLORS = [Color(0.45, 0.06, 0.05), Color(0.30, 0.03, 0.03), Color(0.55, 0.16, 0.12)]
 
-static var _decals: Array[Decal] = []
+## Non tipizzato: può contenere Decal già liberate (livello ricaricato, ecc.), che vanno solo saltate.
+static var _decals: Array = []
 static var _textures := {}
 static var _droplet_mesh: Mesh
 static var _flesh_materials: Array[StandardMaterial3D] = []
@@ -253,7 +254,7 @@ static func _add_decal(root: Node, position: Vector3, normal: Vector3, size: flo
 	decal.global_transform = Transform3D(_basis_from_normal(normal, randf() * TAU), position + normal * 0.02)
 	_decals.append(decal)
 	while _decals.size() > MAX_DECALS:
-		var old: Decal = _decals.pop_front()
+		var old: Variant = _decals.pop_front()
 		if is_instance_valid(old):
 			old.queue_free()
 	return decal
